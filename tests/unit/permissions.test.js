@@ -8,6 +8,14 @@ describe('Centralized RBAC permissions', () => {
     }
   });
 
+  test('task permissions distinguish assignment and deletion from basic task work', () => {
+    expect(hasPermission('Member', PERMISSIONS.TASK_CREATE)).toBe(true);
+    expect(hasPermission('Member', PERMISSIONS.TASK_UPDATE)).toBe(true);
+    expect(hasPermission('Member', PERMISSIONS.TASK_ASSIGN)).toBe(false);
+    expect(hasPermission('Manager', PERMISSIONS.TASK_ASSIGN)).toBe(true);
+    expect(hasPermission('Manager', PERMISSIONS.TASK_DELETE)).toBe(false);
+  });
+
   test('project member management is explicit for organization Managers but not Members', () => {
     expect(hasPermission('Owner', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(true);
     expect(hasPermission('Admin', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(true);
