@@ -126,6 +126,25 @@ describe('Organization service', () => {
     expect(org.settings).toEqual({ allowMemberInvites: true, defaultMemberRole: 'Viewer' });
     await expect(service.remove(org, { role: 'Admin' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
+
+  test('deletes project data and memberships atomically with the organization', async () => {
+    const makeModel = () => ({ deleteMany: jest.fn(), deleteOne: jest.fn() });
+    const InvitationModel = makeModel();
+    const ProjectMemberModel = makeModel();
+    const ProjectModel = makeModel();
+    const MemberModel = makeModel();
+    const OrganizationModel = makeModel();
+    const service = createOrganizationService({
+      InvitationModel, ProjectMemberModel, ProjectModel, MemberModel, OrganizationModel, runInTransaction: transaction
+    });
+
+    await service.remove({ _id: ORG_ID }, { role: 'Owner' });
+    expect(InvitationModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(ProjectMemberModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(ProjectModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(MemberModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(OrganizationModel.deleteOne).toHaveBeenCalledWith({ _id: ORG_ID }, { session: { id: 'test-session' } });
+  });
 });
 
 describe('Organization member service', () => {
@@ -145,6 +164,26 @@ describe('Organization member service', () => {
       .rejects.toMatchObject({ code: 'ROLE_ASSIGNMENT_FORBIDDEN' });
     await expect(service.remove(ORG_ID, MEMBER_ID, { role: 'Viewer', userId: OWNER_ID }))
       .rejects.toMatchObject({ code: 'MEMBER_REMOVAL_FORBIDDEN' });
+  });
+
+  test('removing an organization member revokes project memberships in the same transaction', async () => {
+    const target = { _id: MEMBER_ID, organizationId: ORG_ID, userId: 'dddddddddddddddddddddddd', role: 'Member', status: 'active' };
+    const MemberModel = {
+      findOne: jest.fn().mockResolvedValue(target),
+      findOneAndUpdate: jest.fn().mockResolvedValue({ ...target, status: 'removed' })
+    };
+    const ProjectMemberModel = { updateMany: jest.fn().mockResolvedValue({ modifiedCount: 2 }) };
+    const runInTransaction = jest.fn(transaction);
+    const service = createMemberService({ MemberModel, ProjectMemberModel, runInTransaction });
+
+    await service.remove(ORG_ID, MEMBER_ID, { role: 'Owner', userId: OWNER_ID });
+    expect(runInTransaction).toHaveBeenCalledTimes(1);
+    expect(MemberModel.findOneAndUpdate.mock.calls[0][2]).toMatchObject({ session: { id: 'test-session' } });
+    expect(ProjectMemberModel.updateMany).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, userId: target.userId, status: 'active' },
+      { $set: expect.objectContaining({ status: 'removed', removedBy: OWNER_ID, removedAt: expect.any(Date) }) },
+      { session: { id: 'test-session' } }
+    );
   });
 });
 

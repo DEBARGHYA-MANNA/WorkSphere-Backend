@@ -13,7 +13,7 @@ function authorizePermission(permission, { getRole = (req) => req.membership?.st
   };
 }
 
-function authorizeResource({ permission, loadResource, getOrganizationId = (req) => req.organization?._id, isAllowed }) {
+function authorizeResource({ permission, loadResource, getOrganizationId = (req) => req.organization?._id, isAllowed, permissionCheck }) {
   if (!permission) throw new TypeError('permission is required');
   if (typeof loadResource !== 'function') throw new TypeError('loadResource must be a function');
   return asyncHandler(async (req, res, next) => {
@@ -27,12 +27,13 @@ function authorizeResource({ permission, loadResource, getOrganizationId = (req)
       resource.organizationId,
       getOrganizationId(req)
     );
-    if (permission && !hasPermission(req.membership?.role, permission)) {
-      throw new AppError('You do not have permission to perform this action', 403, 'FORBIDDEN');
-    }
     if (isAllowed && !await isAllowed({ resource, req, membership: req.membership })) {
       throw new AppError('You do not have permission to access this resource', 403, 'RESOURCE_FORBIDDEN');
     }
+    const allowed = permissionCheck
+      ? await permissionCheck({ resource, req, permission, membership: req.membership })
+      : hasPermission(req.membership.role, permission);
+    if (!allowed) throw new AppError('You do not have permission to perform this action', 403, 'FORBIDDEN');
 
     req.resource = resource;
     return next();
