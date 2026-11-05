@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const swaggerUi = require('swagger-ui-express');
 const env = require('./config/env');
 const swaggerSpec = require('./config/swagger');
@@ -10,6 +11,8 @@ const rateLimiter = require('./middlewares/rate-limiter');
 const notFound = require('./middlewares/not-found');
 const errorHandler = require('./middlewares/error-handler');
 const healthRoutes = require('./routes/health.routes');
+const authRoutes = require('./modules/auth/auth.routes');
+const userRoutes = require('./modules/users/user.routes');
 
 const app = express();
 
@@ -40,6 +43,7 @@ app.use(cors({
 app.use(requestContext);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+app.use(cookieParser());
 app.use(rejectUnsafeKeys);
 app.use('/api', rateLimiter);
 
@@ -49,6 +53,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customSiteTitle: 'WorkSphere API Documentation'
 }));
 app.use('/api/v1', healthRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/users', userRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -14,12 +14,15 @@
     "node": ">=20"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.9.5",
     "swagger-ui-express": "^5.0.1",
     "winston": "^3.17.0"

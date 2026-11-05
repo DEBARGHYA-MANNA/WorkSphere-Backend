@@ -18,7 +18,7 @@ function errorHandler(err, req, res, next) {
   }
 
   if (statusCode >= 500) {
-    logger.error('Request failed', { requestId: req.id, error: err.message, stack: err.stack });
+    logger.error('Request failed', { requestId: req.id, errorName: err.name, errorCode: err.code });
     if (env.isProduction) {
       message = 'An unexpected error occurred';
       details = undefined;

@@ -6,7 +6,7 @@ function requestContext(req, res, next) {
   res.setHeader('X-Request-Id', req.id);
   const startedAt = Date.now();
   res.on('finish', () => {
-    logger.http(`${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`, {
+    logger.http(`${req.method} ${req.path} ${res.statusCode} ${Date.now() - startedAt}ms`, {
       requestId: req.id,
       method: req.method,
       path: req.path,
