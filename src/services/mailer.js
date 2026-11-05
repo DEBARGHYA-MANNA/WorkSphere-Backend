@@ -36,4 +36,13 @@ async function sendPasswordResetEmail({ to, token }) {
   });
 }
 
-module.exports = { configureMailTransport, sendVerificationEmail, sendPasswordResetEmail };
+async function sendOrganizationInvitationEmail({ to, token, organizationName, role }) {
+  await deliver({
+    template: 'organization-invitation',
+    to,
+    subject: `You are invited to join ${organizationName} on WorkSphere`,
+    text: `You have been invited to join ${organizationName} as ${role}. Use this one-time invitation token to accept: ${token}`
+  });
+}
+
+module.exports = { configureMailTransport, sendVerificationEmail, sendPasswordResetEmail, sendOrganizationInvitationEmail };

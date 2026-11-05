@@ -9,7 +9,10 @@ module.exports = {
   tags: [
     { name: 'System', description: 'Service health and readiness' },
     { name: 'Authentication', description: 'Registration, sessions, and account verification' },
-    { name: 'Users', description: 'Profile and self-service account management' }
+    { name: 'Users', description: 'Profile and self-service account management' },
+    { name: 'Organizations', description: 'Organization setup, settings, and switching' },
+    { name: 'Members', description: 'Tenant-scoped member and role management' },
+    { name: 'Invitations', description: 'Organization invitations and acceptance' }
   ],
   paths: {
     '/health': {
@@ -176,6 +179,85 @@ module.exports = {
           404: { description: 'User not found or outside the permitted lookup scope' }
         }
       }
+    },
+    '/organizations': {
+      get: {
+        tags: ['Organizations'], summary: 'List organizations for the authenticated user', security: [{ bearerAuth: [] }],
+        parameters: [{ in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } }, { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } }],
+        responses: { 200: { description: 'Organizations with the current user role and pagination' } }
+      },
+      post: {
+        tags: ['Organizations'], summary: 'Create an organization and its initial Owner membership', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateOrganizationRequest' } } } },
+        responses: { 201: { description: 'Organization created' }, 400: { description: 'Validation failed' }, 409: { description: 'Organization slug already exists' } }
+      }
+    },
+    '/organizations/{organizationId}': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Organizations'], summary: 'Get organization details after membership validation', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Organization details' }, 404: { description: 'Organization not found or inaccessible' } }
+      },
+      patch: {
+        tags: ['Organizations'], summary: 'Update organization details or settings (Owner/Admin)', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateOrganizationRequest' } } } },
+        responses: { 200: { description: 'Organization updated' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Organization not found or inaccessible' } }
+      },
+      delete: {
+        tags: ['Organizations'], summary: 'Delete organization and related membership/invitation records (Owner)', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Organization deleted' }, 403: { description: 'Only the Owner may delete' }, 404: { description: 'Organization not found or inaccessible' } }
+      }
+    },
+    '/organizations/{organizationId}/switch': {
+      post: {
+        tags: ['Organizations'], summary: 'Select an organization context after membership verification', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Selected organization and membership role' }, 404: { description: 'Organization not found or inaccessible' } }
+      }
+    },
+    '/organizations/{organizationId}/members': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string' } }],
+      get: {
+        tags: ['Members'], summary: 'List members in the organization (tenant-scoped)', security: [{ bearerAuth: [] }],
+        parameters: [{ in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } }, { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } }],
+        responses: { 200: { description: 'Paginated organization members' }, 404: { description: 'Organization not found or inaccessible' } }
+      }
+    },
+    '/organizations/{organizationId}/members/{memberId}/role': {
+      patch: {
+        tags: ['Members'], summary: 'Change a member role (Owner/Admin; Owner cannot be assigned)', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/UpdateMemberRoleRequest' } } } },
+        responses: { 200: { description: 'Member role changed' }, 403: { description: 'Insufficient permission or role escalation attempted' }, 404: { description: 'Member not found in this organization' } }
+      }
+    },
+    '/organizations/{organizationId}/members/{memberId}': {
+      delete: {
+        tags: ['Members'], summary: 'Remove a member (subject to role hierarchy)', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Member removed' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Member not found in this organization' } }
+      }
+    },
+    '/organizations/{organizationId}/invitations': {
+      get: {
+        tags: ['Invitations'], summary: 'List pending organization invitations', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Paginated pending invitations; token values are never returned' } }
+      },
+      post: {
+        tags: ['Invitations'], summary: 'Invite a user by email with a permitted role', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CreateInvitationRequest' } } } },
+        responses: { 201: { description: 'Invitation sent' }, 403: { description: 'Role cannot be assigned by this member' }, 409: { description: 'Member or pending invitation already exists' } }
+      }
+    },
+    '/organizations/{organizationId}/invitations/{invitationId}': {
+      delete: {
+        tags: ['Invitations'], summary: 'Revoke a pending invitation', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Invitation revoked' }, 404: { description: 'Invitation not found in this organization' } }
+      }
+    },
+    '/invitations/accept': {
+      post: {
+        tags: ['Invitations'], summary: 'Accept an invitation using the verified account email', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/AcceptInvitationRequest' } } } },
+        responses: { 200: { description: 'Organization membership activated' }, 400: { description: 'Invitation invalid, expired, or intended for another account' }, 409: { description: 'Already an organization member' } }
+      }
     }
   },
   components: {
@@ -229,6 +311,49 @@ module.exports = {
       DeactivateAccountRequest: {
         type: 'object', required: ['password'],
         properties: { password: { type: 'string', minLength: 1, maxLength: 72 } }
+      },
+      CreateOrganizationRequest: {
+        type: 'object', required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 120 },
+          description: { type: 'string', maxLength: 2000 },
+          settings: {
+            type: 'object',
+            properties: {
+              allowMemberInvites: { type: 'boolean' },
+              defaultMemberRole: { type: 'string', enum: ['Member', 'Viewer'] }
+            }
+          }
+        }
+      },
+      UpdateOrganizationRequest: {
+        type: 'object', minProperties: 1,
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 120 },
+          description: { type: 'string', maxLength: 2000 },
+          settings: {
+            type: 'object', minProperties: 1,
+            properties: {
+              allowMemberInvites: { type: 'boolean' },
+              defaultMemberRole: { type: 'string', enum: ['Member', 'Viewer'] }
+            }
+          }
+        }
+      },
+      UpdateMemberRoleRequest: {
+        type: 'object', required: ['role'],
+        properties: { role: { type: 'string', enum: ['Admin', 'Manager', 'Member', 'Viewer'] } }
+      },
+      CreateInvitationRequest: {
+        type: 'object', required: ['email'],
+        properties: {
+          email: { type: 'string', format: 'email' },
+          role: { type: 'string', enum: ['Admin', 'Manager', 'Member', 'Viewer'] }
+        }
+      },
+      AcceptInvitationRequest: {
+        type: 'object', required: ['token'],
+        properties: { token: { type: 'string', minLength: 32, maxLength: 256 } }
       }
     }
   }

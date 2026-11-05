@@ -1,6 +1,6 @@
 # WorkSphere Backend
 
-WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation is **Phase 1: Project Foundation**.
+WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–4: Foundation, Authentication, User Management, and Organizations/Multi-Tenancy**.
 
 ## Requirements
 
@@ -20,6 +20,7 @@ The server listens on `0.0.0.0:3000` by default and will start only after it con
 
 ## Endpoints
 
+- `GET /` — WorkSphere API welcome/status response
 - `GET /api/v1/health` — liveness probe (works without a database connection)
 - `GET /api/v1/health/ready` — readiness probe (returns 503 if MongoDB is disconnected)
 - `GET /api-docs` — Swagger UI
@@ -42,11 +43,11 @@ The initial integration tests exercise the HTTP foundation and do not require a 
 
 ## MongoDB transactions
 
-Multi-document transactions planned for later phases require MongoDB to run as a replica set or sharded cluster. A local standalone `mongod` is sufficient for the current health endpoints, but not for transaction-backed features. For local transaction development, configure MongoDB as a single-node replica set and connect using a replica-set URI, for example `mongodb://127.0.0.1:27017/worksphere?replicaSet=rs0`.
+Organization creation/deletion and invitation acceptance use multi-document transactions, which require MongoDB to run as a replica set or sharded cluster. A local standalone `mongod` is sufficient for health endpoints but not these operations. For local transaction development, configure MongoDB as a single-node replica set and connect using a replica-set URI, for example `mongodb://127.0.0.1:27017/worksphere?replicaSet=rs0`.
 
 ## Current scope
 
-Phase 1 includes environment configuration, Mongoose connectivity, Winston logging, security middleware, request validation utilities, standardized error/404 handling, Swagger/OpenAPI, health/readiness endpoints, and Jest/Supertest coverage. Authentication and product-domain features are intentionally out of scope until subsequent phases.
+The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, and tenant access checks are implemented in phases. Project, task, comment, notification, activity, and analytics modules remain future work.
 
 ## Authentication (Phase 2)
 
@@ -79,3 +80,16 @@ Authentication service tests cover registration hashing, email verification, cre
 - `GET /api/v1/users/:userId` is currently restricted to looking up the authenticated user. A global user directory/search is intentionally deferred until organization membership exists, so users cannot enumerate accounts across tenants.
 
 Profile updates reject account-status or role fields; users can only deactivate their own account. Email re-verification is required before an updated email can be used to sign in.
+
+## Organizations and multi-tenancy (Phase 4)
+
+- `POST /api/v1/organizations` creates an organization with its initial Owner membership in one MongoDB transaction.
+- `GET /api/v1/organizations` lists only organizations where the authenticated user has an active membership.
+- `GET`, `PATCH`, `DELETE /api/v1/organizations/:organizationId` enforce membership and role permissions; deletion is limited to the Owner and transactionally removes organization memberships and invitations.
+- `POST /api/v1/organizations/:organizationId/switch` confirms and returns the selected organization context. All organization-scoped routes independently validate membership; clients cannot switch by simply supplying an arbitrary ID.
+- `GET /api/v1/organizations/:organizationId/members` provides tenant-scoped, paginated member listings. Role changes and removals enforce a strict hierarchy; Owner cannot be assigned or removed.
+- Nested organization invitation routes create, list, and revoke invitations. `POST /api/v1/invitations/accept` requires a valid, unexpired token and the matching verified account email; acceptance atomically activates membership and consumes the token.
+
+Roles are Owner, Admin, Manager, Member, and Viewer, with permission checks centralized in `src/constants/permissions.js`. Organization-owned queries use a required organization scope helper. User lookup remains self-scoped until organization membership provides a safe directory boundary.
+
+Organization creation/deletion and invitation acceptance depend on MongoDB transaction support. Configure the database as a replica set as described above. The mail transport abstraction must be configured to deliver organization invitations.
