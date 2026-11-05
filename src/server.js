@@ -13,12 +13,15 @@ const app = appModule.createApp({
 const env = require('./config/env');
 const logger = require('./logger');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
+const { startDeadlineReminderScheduler, stopDeadlineReminderScheduler } = require('./modules/notifications/deadline-reminder.scheduler');
 
 let server;
+let deadlineReminderTimer;
 let shuttingDown = false;
 
 async function startServer() {
   await connectDatabase();
+  if (!deadlineReminderTimer) deadlineReminderTimer = startDeadlineReminderScheduler();
   server = app.listen(env.port, '0.0.0.0', () => {
     logger.info(`WorkSphere API listening on port ${env.port}`);
   });
@@ -37,6 +40,8 @@ async function shutdown(signal) {
 
   try {
     if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    stopDeadlineReminderScheduler(deadlineReminderTimer);
+    deadlineReminderTimer = null;
     await disconnectDatabase();
     process.exitCode = 0;
   } catch (error) {

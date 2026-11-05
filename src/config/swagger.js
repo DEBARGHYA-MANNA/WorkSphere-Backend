@@ -14,7 +14,10 @@ module.exports = {
     { name: 'Members', description: 'Tenant-scoped member and role management' },
     { name: 'Invitations', description: 'Organization invitations and acceptance' },
     { name: 'Projects', description: 'Tenant-scoped projects, lifecycle, and project membership' },
-    { name: 'Tasks', description: 'Project-scoped tasks, assignment, workflow, and dependencies' }
+    { name: 'Tasks', description: 'Project-scoped tasks, assignment, workflow, and dependencies' },
+    { name: 'Comments', description: 'Task comments, edits, deletes, and member mentions' },
+    { name: 'Activity', description: 'Immutable project-scoped collaboration and task history' },
+    { name: 'Notifications', description: 'Recipient-scoped notification inbox and read state' }
   ],
   paths: {
     '/health': {
@@ -440,6 +443,95 @@ module.exports = {
         responses: { 200: { description: 'Paginated tasks assigned to the authenticated user' }, 403: { description: 'Insufficient permission' } }
       }
     },
+    '/organizations/{organizationId}/projects/{projectId}/tasks/{taskId}/comments': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'taskId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Comments'], summary: 'Retrieve task comments in chronological order', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } }
+        ],
+        responses: { 200: { description: 'Paginated, non-deleted task comments' }, 404: { description: 'Task not found or inaccessible' } }
+      },
+      post: {
+        tags: ['Comments'], summary: 'Create a comment and optionally mention active project members', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CommentCreateRequest' } } } },
+        responses: { 201: { description: 'Comment created; mentioned members receive notifications' }, 400: { description: 'Validation failed' }, 404: { description: 'A mentioned member is inactive or lacks private-project access' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/tasks/{taskId}/comments/{commentId}': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'taskId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'commentId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      patch: {
+        tags: ['Comments'], summary: 'Edit a comment authored by the current user', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/CommentUpdateRequest' } } } },
+        responses: { 200: { description: 'Comment updated' }, 403: { description: 'Only its author may edit the comment' }, 404: { description: 'Comment not found' } }
+      },
+      delete: {
+        tags: ['Comments'], summary: 'Soft-delete a comment; activity history is retained', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Comment deleted' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Comment not found' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/activity': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Activity'], summary: 'Retrieve immutable task and comment activity history for a project', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'taskId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+        ],
+        responses: { 200: { description: 'Paginated activity events' }, 404: { description: 'Project not found or inaccessible' } }
+      }
+    },
+    '/organizations/{organizationId}/notifications': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Notifications'], summary: 'List notifications for the authenticated recipient', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'category', schema: { type: 'string', enum: ['mention', 'task_assigned', 'comment', 'task_due_soon', 'task_overdue', 'system'] } },
+          { in: 'query', name: 'unreadOnly', schema: { type: 'boolean', default: false } }
+        ],
+        responses: { 200: { description: 'Paginated notifications for the current user' } }
+      }
+    },
+    '/organizations/{organizationId}/notifications/unread-count': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Notifications'], summary: 'Count unread notifications for the current user', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Unread notification count' } }
+      }
+    },
+    '/organizations/{organizationId}/notifications/read-all': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      patch: {
+        tags: ['Notifications'], summary: 'Mark all unread notifications as read', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Number of notifications updated' } }
+      }
+    },
+    '/organizations/{organizationId}/notifications/{notificationId}/read': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'notificationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      patch: {
+        tags: ['Notifications'], summary: 'Mark one of the current user notifications as read', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Notification read state updated' }, 404: { description: 'Notification not found' } }
+      }
+    },
     '/organizations/{organizationId}/invitations': {
       get: {
         tags: ['Invitations'], summary: 'List pending organization invitations', security: [{ bearerAuth: [] }],
@@ -559,6 +651,20 @@ module.exports = {
       AcceptInvitationRequest: {
         type: 'object', required: ['token'],
         properties: { token: { type: 'string', minLength: 32, maxLength: 256 } }
+      },
+      CommentCreateRequest: {
+        type: 'object', required: ['body'],
+        properties: {
+          body: { type: 'string', minLength: 1, maxLength: 10000 },
+          mentions: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+        }
+      },
+      CommentUpdateRequest: {
+        type: 'object', minProperties: 1,
+        properties: {
+          body: { type: 'string', minLength: 1, maxLength: 10000 },
+          mentions: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+        }
       },
       TaskCreateRequest: {
         type: 'object', required: ['title'],

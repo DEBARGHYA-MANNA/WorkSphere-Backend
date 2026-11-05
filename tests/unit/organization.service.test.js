@@ -133,15 +133,22 @@ describe('Organization service', () => {
     const ProjectMemberModel = makeModel();
     const ProjectModel = makeModel();
     const TaskModel = makeModel();
+    const CommentModel = makeModel();
+    const ActivityModel = makeModel();
+    const NotificationModel = makeModel();
     const MemberModel = makeModel();
     const OrganizationModel = makeModel();
     const service = createOrganizationService({
-      InvitationModel, ProjectMemberModel, ProjectModel, TaskModel, MemberModel, OrganizationModel, runInTransaction: transaction
+      InvitationModel, ProjectMemberModel, ProjectModel, TaskModel, CommentModel, ActivityModel, NotificationModel,
+      MemberModel, OrganizationModel, runInTransaction: transaction
     });
 
     await service.remove({ _id: ORG_ID }, { role: 'Owner' });
     expect(InvitationModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(NotificationModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
     expect(TaskModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(CommentModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
+    expect(ActivityModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
     expect(ProjectMemberModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
     expect(ProjectModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
     expect(MemberModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID }, { session: { id: 'test-session' } });
@@ -176,8 +183,9 @@ describe('Organization member service', () => {
     };
     const ProjectMemberModel = { updateMany: jest.fn().mockResolvedValue({ modifiedCount: 2 }) };
     const TaskModel = { updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }) };
+    const NotificationModel = { deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) };
     const runInTransaction = jest.fn(transaction);
-    const service = createMemberService({ MemberModel, ProjectMemberModel, TaskModel, runInTransaction });
+    const service = createMemberService({ MemberModel, ProjectMemberModel, TaskModel, NotificationModel, runInTransaction });
 
     await service.remove(ORG_ID, MEMBER_ID, { role: 'Owner', userId: OWNER_ID });
     expect(runInTransaction).toHaveBeenCalledTimes(1);
@@ -190,6 +198,10 @@ describe('Organization member service', () => {
     expect(TaskModel.updateMany).toHaveBeenCalledWith(
       { organizationId: ORG_ID, assigneeId: target.userId },
       { $set: { assigneeId: null, updatedBy: OWNER_ID } },
+      { session: { id: 'test-session' } }
+    );
+    expect(NotificationModel.deleteMany).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, recipientId: target.userId },
       { session: { id: 'test-session' } }
     );
   });

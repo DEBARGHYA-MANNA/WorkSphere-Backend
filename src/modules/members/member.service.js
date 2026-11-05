@@ -1,6 +1,7 @@
 const OrganizationMember = require('./organization-member.model');
 const ProjectMember = require('../projects/project-member.model');
 const Task = require('../tasks/task.model');
+const Notification = require('../notifications/notification.model');
 const User = require('../users/user.model');
 const AppError = require('../../utils/app-error');
 const { organizationScopedFilter } = require('../../utils/tenant-access');
@@ -12,6 +13,7 @@ function createMemberService({
   MemberModel = OrganizationMember,
   ProjectMemberModel = ProjectMember,
   TaskModel = Task,
+  NotificationModel = Notification,
   UserModel = User,
   runInTransaction = withMongoTransaction,
   clock = () => new Date()
@@ -85,6 +87,10 @@ function createMemberService({
       await TaskModel.updateMany(
         organizationScopedFilter(organizationId, { assigneeId: target.userId }),
         { $set: { assigneeId: null, updatedBy: actorMembership.userId } },
+        { session }
+      );
+      await NotificationModel.deleteMany(
+        organizationScopedFilter(organizationId, { recipientId: target.userId }),
         { session }
       );
       return removed;

@@ -6,6 +6,7 @@ const projectAccess = require('./project-access');
 const controller = require('./project.controller');
 const validation = require('./project.validation');
 const taskRoutes = require('../tasks/task.routes');
+const activityRoutes = require('../activities/activity.routes');
 
 const router = express.Router({ mergeParams: true });
 
@@ -69,5 +70,6 @@ router.delete('/:projectId/members/:userId',
   controller.removeMember
 );
 router.use('/:projectId/tasks', taskRoutes);
+router.use(activityRoutes);
 
 module.exports = router;
