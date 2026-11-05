@@ -66,7 +66,7 @@ function createAuthService({
   }
 
   async function register({ name, email, password }) {
-    const verificationToken = crypto.createOpaqueToken(32);
+    const verificationToken = config.emailVerificationEnabled ? crypto.createOpaqueToken(32) : null;
     const now = clock();
     try {
       const user = new UserModel({
@@ -74,12 +74,15 @@ function createAuthService({
         email: email.toLowerCase(),
         passwordHash: password,
         emailVerified: false,
+        emailVerifiedAt: null,
         status: 'active',
-        emailVerificationTokenHash: crypto.hashToken(verificationToken),
-        emailVerificationExpiresAt: new Date(now.getTime() + VERIFICATION_TOKEN_TTL_MS)
+        emailVerificationTokenHash: verificationToken ? crypto.hashToken(verificationToken) : null,
+        emailVerificationExpiresAt: verificationToken ? new Date(now.getTime() + VERIFICATION_TOKEN_TTL_MS) : null
       });
       await user.save();
-      await deliverEmailSafely(() => mail.sendVerificationEmail({ to: user.email, token: verificationToken }));
+      if (verificationToken) {
+        await deliverEmailSafely(() => mail.sendVerificationEmail({ to: user.email, token: verificationToken }));
+      }
       return user;
     } catch (error) {
       if (error.code === 11000) {
@@ -90,6 +93,7 @@ function createAuthService({
   }
 
   async function resendVerification(email) {
+    if (!config.emailVerificationEnabled) return;
     const user = await UserModel.findOne({ email: email.toLowerCase() });
     if (!user || user.emailVerified || user.status !== 'active') return;
 
@@ -101,6 +105,9 @@ function createAuthService({
   }
 
   async function verifyEmail(token) {
+    if (!config.emailVerificationEnabled) {
+      throw new AppError('Email verification is currently disabled', 409, 'EMAIL_VERIFICATION_DISABLED');
+    }
     const user = await UserModel.findOneAndUpdate({
       emailVerificationTokenHash: crypto.hashToken(token),
       emailVerificationExpiresAt: mongoose.trusted({ $gt: clock() }),
@@ -126,7 +133,7 @@ function createAuthService({
     }
     const passwordHash = user ? user.passwordHash : await dummyPasswordHashPromise;
     const passwordMatches = await crypto.verifyPassword(password, passwordHash);
-    if (!user || !passwordMatches || !user.emailVerified || user.status !== 'active') {
+    if (!user || !passwordMatches || (config.emailVerificationEnabled && !user.emailVerified) || user.status !== 'active') {
       throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
     }
     return issueSession(user);
@@ -149,7 +156,7 @@ function createAuthService({
     }
 
     const user = await UserModel.findById(current.userId);
-    if (!user || user.status !== 'active' || !user.emailVerified) {
+    if (!user || user.status !== 'active' || (config.emailVerificationEnabled && !user.emailVerified)) {
       await RefreshTokenModel.updateMany({ sessionId: current.sessionId }, { $set: { revokedAt: now } });
       throw new AppError('Refresh token is invalid or expired', 401, 'INVALID_REFRESH_TOKEN');
     }
@@ -207,7 +214,7 @@ function createAuthService({
 
   async function forgotPassword(email) {
     const user = await UserModel.findOne({ email: email.toLowerCase() });
-    if (!user || !user.emailVerified || user.status !== 'active') return;
+    if (!user || (config.emailVerificationEnabled && !user.emailVerified) || user.status !== 'active') return;
 
     const token = crypto.createOpaqueToken(32);
     user.passwordResetTokenHash = crypto.hashToken(token);
@@ -218,12 +225,13 @@ function createAuthService({
 
   async function resetPassword({ token, password }) {
     const newPasswordHash = await crypto.hashPassword(password);
-    const user = await UserModel.findOneAndUpdate({
+    const resetFilter = {
       passwordResetTokenHash: crypto.hashToken(token),
       passwordResetExpiresAt: mongoose.trusted({ $gt: clock() }),
-      status: 'active',
-      emailVerified: true
-    }, {
+      status: 'active'
+    };
+    if (config.emailVerificationEnabled) resetFilter.emailVerified = true;
+    const user = await UserModel.findOneAndUpdate(resetFilter, {
       $set: {
         passwordHash: newPasswordHash,
         passwordResetTokenHash: null,

@@ -41,6 +41,7 @@ Copy `.env.example` to `.env`; startup validates configured values and ranges. P
 | `MONGODB_SERVER_SELECTION_TIMEOUT_MS`, `MONGODB_SOCKET_TIMEOUT_MS`, `MONGODB_MAX_POOL_SIZE`, `MONGODB_MIN_POOL_SIZE` | Database connection and pool tuning. |
 | `MONGOOSE_AUTO_INDEX` | Override schema auto-indexing; defaults on outside production and off in production. |
 | `JWT_ACCESS_SECRET`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL_DAYS` | Access JWT signing secret and token lifetimes. Refresh tokens themselves are opaque random values. |
+| `EMAIL_VERIFICATION_ENABLED` | Defaults to `false`; requires a functioning mail transport before enabling. |
 | `BCRYPT_ROUNDS` | Password hashing work factor (minimum 10; default 12). |
 | `CORS_ORIGIN` | Comma-separated exact allowed origins; do not use `*` with credentials. |
 | `COOKIE_SAME_SITE` | `strict`, `lax`, or `none`; `none` requires production Secure cookies. |
@@ -84,9 +85,8 @@ The foundation, authentication, self-service user management, organization/membe
 
 Available authentication routes under `/api/v1/auth`:
 
-- `POST /register` — creates an account and emails a one-time verification token.
-- `POST /resend-verification` — retries verification delivery without revealing whether an account exists.
-- `POST /verify-email` — verifies the account and starts a session.
+- `POST /register` — creates an account. Email verification is **disabled by default**, so the account can sign in immediately without a mailer. Set `EMAIL_VERIFICATION_ENABLED=true` only after a verification mail transport is configured.
+- `POST /resend-verification` and `POST /verify-email` — are inactive while verification is disabled; they remain available for a future mailer-backed flow.
 - `POST /login` and `POST /refresh` — return short-lived access JWTs; refresh tokens are rotated and sent only in an HttpOnly cookie.
 - `POST /logout` and authenticated `POST /logout-all` — revoke the current session or all account sessions.
 - `POST /forgot-password` and `POST /reset-password` — issue and consume one-time reset tokens; successful reset revokes existing sessions.
@@ -96,7 +96,7 @@ Refresh tokens and one-time email/password tokens are generated from cryptograph
 
 Set `JWT_ACCESS_SECRET` to a unique random value of at least 32 characters in production. Refresh cookies are `HttpOnly`, `SameSite=Lax` by default, scoped to the auth routes, and use `Secure` in production. Set `COOKIE_SAME_SITE=none` only for cross-site browser deployments over HTTPS.
 
-Email is behind a provider-independent transport interface. Configure a transport with `configureMailTransport({ sendMail(message) { ... } })` during application startup to deliver verification and reset messages. No provider credentials or vendor dependency are included. Without a configured transport, local development logs that delivery was skipped without logging any token; emails will not be delivered.
+Email is behind a provider-independent transport interface. Email verification is temporarily opt-out (`EMAIL_VERIFICATION_ENABLED=false`), and registration does not return a verification token. Do not turn it on until a mail transport is configured with `configureMailTransport({ sendMail(message) { ... } })`. Password-reset and invitation emails still need a mail transport; without one, delivery is skipped and tokens are not returned in API responses.
 
 ## Authentication test coverage
 
@@ -105,12 +105,12 @@ Authentication service tests cover registration hashing, email verification, cre
 ## User management (Phase 3)
 
 - `GET /api/v1/users/me` retrieves the authenticated profile.
-- `PATCH /api/v1/users/me` updates name, bio, avatar URL, timezone, and optionally email. Email changes clear verification, send a new one-time verification token, and revoke existing sessions.
+- `PATCH /api/v1/users/me` updates name, bio, avatar URL, timezone, and optionally email. Email changes revoke existing sessions; they require re-verification only when `EMAIL_VERIFICATION_ENABLED=true` and a mail transport is configured.
 - `PATCH /api/v1/users/me/password` verifies the current password, changes the hash, and revokes all sessions.
 - `DELETE /api/v1/users/me` performs a password-confirmed soft deactivation, sets account status to disabled, and revokes sessions. It does not hard-delete or anonymize account data.
 - `GET /api/v1/users/:userId` is currently restricted to looking up the authenticated user. A global user directory/search is intentionally deferred until organization membership exists, so users cannot enumerate accounts across tenants.
 
-Profile updates reject account-status or role fields; users can only deactivate their own account. Email re-verification is required before an updated email can be used to sign in.
+Profile updates reject account-status or role fields; users can only deactivate their own account. With verification disabled, a changed email remains usable immediately; turn verification on only after mail delivery is ready.
 
 ## Organizations and multi-tenancy (Phase 4)
 
@@ -119,7 +119,7 @@ Profile updates reject account-status or role fields; users can only deactivate 
 - `GET`, `PATCH`, `DELETE /api/v1/organizations/:organizationId` enforce membership and role permissions; deletion is limited to the Owner and transactionally removes organization memberships, invitations, projects, project memberships, and tasks.
 - `POST /api/v1/organizations/:organizationId/switch` confirms and returns the selected organization context. All organization-scoped routes independently validate membership; clients cannot switch by simply supplying an arbitrary ID.
 - `GET /api/v1/organizations/:organizationId/members` provides tenant-scoped, paginated member listings. Role changes and removals enforce a strict hierarchy; Owner cannot be assigned or removed.
-- Nested organization invitation routes create, list, and revoke invitations. `POST /api/v1/invitations/accept` requires a valid, unexpired token and the matching verified account email; acceptance atomically activates membership and consumes the token.
+- Nested organization invitation routes create, list, and revoke invitations. `POST /api/v1/invitations/accept` requires a valid, unexpired token and the matching active account email; email verification is required only when `EMAIL_VERIFICATION_ENABLED=true`. Acceptance atomically activates membership and consumes the token.
 
 Roles are Owner, Admin, Manager, Member, and Viewer, with permission checks centralized in `src/constants/permissions.js`. Organization-owned queries use a required organization scope helper. User lookup remains self-scoped until organization membership provides a safe directory boundary.
 

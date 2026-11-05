@@ -41,10 +41,10 @@ module.exports = {
     '/auth/register': {
       post: {
         tags: ['Authentication'],
-        summary: 'Register a user and send email verification',
+        summary: 'Register a user; email verification is disabled by default',
         requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/RegisterRequest' } } } },
         responses: {
-          201: { description: 'Account created; email verification is required' },
+          201: { description: 'Account created; email verification is required only when EMAIL_VERIFICATION_ENABLED=true' },
           400: { description: 'Request validation failed' },
           409: { description: 'Email address is already registered' }
         }
@@ -53,19 +53,20 @@ module.exports = {
     '/auth/resend-verification': {
       post: {
         tags: ['Authentication'],
-        summary: 'Resend email verification instructions without revealing account existence',
+        summary: 'Resend email verification instructions when verification is enabled',
         requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/EmailRequest' } } } },
-        responses: { 200: { description: 'Generic response' } }
+        responses: { 200: { description: 'Generic response when enabled; indicates verification is disabled otherwise' } }
       }
     },
     '/auth/verify-email': {
       post: {
         tags: ['Authentication'],
-        summary: 'Verify an email address using its one-time token',
+        summary: 'Verify an email address when EMAIL_VERIFICATION_ENABLED is true',
         requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/OneTimeTokenRequest' } } } },
         responses: {
           200: { description: 'Email verified; access token and refresh cookie issued' },
-          400: { description: 'Token is invalid or expired' }
+          400: { description: 'Token is invalid or expired' },
+          409: { description: 'Email verification is disabled' }
         }
       }
     },
@@ -76,7 +77,7 @@ module.exports = {
         requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/LoginRequest' } } } },
         responses: {
           200: { description: 'Login successful; access token returned and refresh token set as an HttpOnly cookie' },
-          401: { description: 'Credentials are invalid or email has not been verified' }
+          401: { description: 'Credentials are invalid or the account is inactive' }
         }
       }
     },
@@ -601,7 +602,7 @@ module.exports = {
     },
     '/invitations/accept': {
       post: {
-        tags: ['Invitations'], summary: 'Accept an invitation using the verified account email', security: [{ bearerAuth: [] }],
+        tags: ['Invitations'], summary: 'Accept an invitation using the matching active account email', security: [{ bearerAuth: [] }],
         requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/AcceptInvitationRequest' } } } },
         responses: { 200: { description: 'Organization membership activated' }, 400: { description: 'Invitation invalid, expired, or intended for another account' }, 409: { description: 'Already an organization member' } }
       }
