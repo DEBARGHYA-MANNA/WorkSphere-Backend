@@ -9,7 +9,7 @@ module.exports = {
   tags: [
     { name: 'System', description: 'Service health and readiness' },
     { name: 'Authentication', description: 'Registration, sessions, and account verification' },
-    { name: 'Users', description: 'Current user profile' }
+    { name: 'Users', description: 'Profile and self-service account management' }
   ],
   paths: {
     '/health': {
@@ -129,6 +129,52 @@ module.exports = {
           200: { description: 'Current user profile' },
           401: { description: 'Access token is missing, invalid, expired, or revoked' }
         }
+      },
+      patch: {
+        tags: ['Users'],
+        summary: 'Update profile details; changing email requires reverification and revokes sessions',
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProfileUpdate' } } } },
+        responses: {
+          200: { description: 'Profile updated' },
+          400: { description: 'Request validation failed' },
+          409: { description: 'Email is already registered' }
+        }
+      },
+      delete: {
+        tags: ['Users'],
+        summary: 'Deactivate the authenticated account (soft deactivation)',
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DeactivateAccountRequest' } } } },
+        responses: {
+          200: { description: 'Account disabled and all sessions revoked' },
+          401: { description: 'Password confirmation failed or access token is invalid' }
+        }
+      }
+    },
+    '/users/me/password': {
+      patch: {
+        tags: ['Users'],
+        summary: 'Change the authenticated user password',
+        security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/PasswordChangeRequest' } } } },
+        responses: {
+          200: { description: 'Password changed and all sessions revoked' },
+          400: { description: 'Request validation failed' },
+          401: { description: 'Current password or access token is invalid' }
+        }
+      }
+    },
+    '/users/{userId}': {
+      get: {
+        tags: ['Users'],
+        summary: 'Look up a user by id; currently restricted to the authenticated user',
+        security: [{ bearerAuth: [] }],
+        parameters: [{ in: 'path', name: 'userId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+        responses: {
+          200: { description: 'User profile' },
+          404: { description: 'User not found or outside the permitted lookup scope' }
+        }
       }
     }
   },
@@ -162,6 +208,27 @@ module.exports = {
           token: { type: 'string', minLength: 32, maxLength: 256 },
           password: { type: 'string', minLength: 12, maxLength: 72 }
         }
+      },
+      ProfileUpdate: {
+        type: 'object', minProperties: 1,
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 100 },
+          email: { type: 'string', format: 'email', description: 'Changing email clears verification and revokes sessions.' },
+          bio: { type: 'string', maxLength: 500 },
+          avatarUrl: { type: 'string', format: 'uri', nullable: true, maxLength: 2048 },
+          timezone: { type: 'string', maxLength: 64, description: 'IANA time zone name.' }
+        }
+      },
+      PasswordChangeRequest: {
+        type: 'object', required: ['currentPassword', 'newPassword'],
+        properties: {
+          currentPassword: { type: 'string', minLength: 1, maxLength: 72 },
+          newPassword: { type: 'string', minLength: 12, maxLength: 72 }
+        }
+      },
+      DeactivateAccountRequest: {
+        type: 'object', required: ['password'],
+        properties: { password: { type: 'string', minLength: 1, maxLength: 72 } }
       }
     }
   }

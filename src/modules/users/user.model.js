@@ -4,6 +4,9 @@ const env = require('../../config/env');
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, minlength: 2, maxlength: 100 },
+  bio: { type: String, trim: true, maxlength: 500, default: '' },
+  avatarUrl: { type: String, trim: true, maxlength: 2048, default: null },
+  timezone: { type: String, trim: true, maxlength: 64, default: 'UTC' },
   email: { type: String, required: true, trim: true, lowercase: true, maxlength: 254, match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
   passwordHash: { type: String, required: true, select: false },
   emailVerified: { type: Boolean, default: false },
