@@ -1,4 +1,15 @@
-const app = require('./app');
+const appModule = require('./app');
+const app = appModule.createApp({
+  configureRoutes(app) {
+    app.get('/', (_req, res) => {
+      res.status(200).json({
+        success: true,
+        message: 'Welcome to WorkSphere API',
+        status: 'Server is running'
+      });
+    });
+  }
+});
 const env = require('./config/env');
 const logger = require('./logger');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
@@ -45,4 +56,4 @@ if (require.main === module) {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-module.exports = { startServer, shutdown };
+module.exports = { app, startServer, shutdown };
