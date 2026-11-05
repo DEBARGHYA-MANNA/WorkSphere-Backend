@@ -1,6 +1,8 @@
 # WorkSphere Backend
 
-WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–13: Foundation, Authentication, User Management, Organizations/Multi-Tenancy, RBAC, Project Management, Task Management, Comments/Collaboration, Notifications, Activity Logs, Analytics, Security Hardening, and Production Readiness**.
+WorkSphere Backend **v2.0.0** is a multi-tenant project management SaaS API built with Node.js, Express, MongoDB, and Mongoose. Phases 1–14 are integrated: foundation, authentication, user management, organizations/multi-tenancy, RBAC, projects, tasks, comments/collaboration, notifications, activity logs, analytics, security hardening, production readiness, and final integration/release preparation.
+
+> Release note: this version is prepared for a reviewed release pull request. Live MongoDB replica-set, production mail delivery, load, backup recovery, and deployment verification remain deployment/release-environment checks.
 
 ## Requirements
 
@@ -10,7 +12,7 @@ WorkSphere is a multi-tenant project management SaaS backend built with Node.js,
 ## Setup
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
 # Edit MONGODB_URI and other settings in .env
 npm run dev
@@ -30,7 +32,34 @@ API routes are versioned under `/api/v1`. Errors use a consistent JSON shape wit
 
 ## Configuration
 
-See `.env.example` for the supported environment variables. `CORS_ORIGIN` accepts a comma-separated list of allowed origins. Avoid `*` when using credentialed browser requests.
+Copy `.env.example` to `.env`; startup validates configured values and ranges. Production startup additionally requires an explicitly configured strong `JWT_ACCESS_SECRET`, exact non-wildcard `CORS_ORIGIN` values, and a non-local `MONGODB_URI`. Refresh credentials are random opaque tokens, so a separate `JWT_REFRESH_SECRET` is not used. Cookie `Secure` is automatically enabled in production.
+
+| Variable | Purpose |
+| --- | --- |
+| `NODE_ENV`, `PORT` | Runtime mode and listen port. |
+| `MONGODB_URI` | MongoDB connection string; use a replica-set/sharded deployment for transaction workflows. |
+| `MONGODB_SERVER_SELECTION_TIMEOUT_MS`, `MONGODB_SOCKET_TIMEOUT_MS`, `MONGODB_MAX_POOL_SIZE`, `MONGODB_MIN_POOL_SIZE` | Database connection and pool tuning. |
+| `MONGOOSE_AUTO_INDEX` | Override schema auto-indexing; defaults on outside production and off in production. |
+| `JWT_ACCESS_SECRET`, `ACCESS_TOKEN_TTL`, `REFRESH_TOKEN_TTL_DAYS` | Access JWT signing secret and token lifetimes. Refresh tokens themselves are opaque random values. |
+| `BCRYPT_ROUNDS` | Password hashing work factor (minimum 10; default 12). |
+| `CORS_ORIGIN` | Comma-separated exact allowed origins; do not use `*` with credentials. |
+| `COOKIE_SAME_SITE` | `strict`, `lax`, or `none`; `none` requires production Secure cookies. |
+| `TRUST_PROXY_HOPS` | Trusted reverse-proxy hop count; set only for a known proxy topology. |
+| `LOG_LEVEL` | Structured logger verbosity. |
+| `REQUEST_TIMEOUT_MS`, `SHUTDOWN_TIMEOUT_MS` | HTTP request and graceful-shutdown bounds. |
+
+No mail-vendor credentials are provided: configure a production mail transport through the application integration layer. Never commit a real `.env` or secret.
+
+## Documentation
+
+- [Architecture](ARCHITECTURE.md) — modules, request lifecycle, tenant boundaries, authentication, and operations.
+- [Database](DATABASE.md) — collections, relationships, transactions, indexes, and MongoDB setup.
+- [API documentation](API_DOCUMENTATION.md) — conventions and end-to-end endpoint workflows; the running service exposes Swagger UI at `/api-docs` and its live OpenAPI contract at `/openapi.json`.
+- [Contributing](CONTRIBUTING.md) — development and Git/PR workflow.
+- [Security](SECURITY.md) — vulnerability reporting and security responsibilities.
+- [Testing](TESTING.md) — quality gates and optional replica-set verification.
+- [Changelog](CHANGELOG.md) — v2.0.0 changes and release verification status.
+- [Deployment](docs/deployment.md) — production configuration and operations.
 
 ## Tests and lint
 
