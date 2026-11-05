@@ -93,3 +93,9 @@ Profile updates reject account-status or role fields; users can only deactivate 
 Roles are Owner, Admin, Manager, Member, and Viewer, with permission checks centralized in `src/constants/permissions.js`. Organization-owned queries use a required organization scope helper. User lookup remains self-scoped until organization membership provides a safe directory boundary.
 
 Organization creation/deletion and invitation acceptance depend on MongoDB transaction support. Configure the database as a replica set as described above. The mail transport abstraction must be configured to deliver organization invitations.
+
+## Role-based access control (Phase 5)
+
+The centralized permission matrix in `src/constants/permissions.js` defines Owner, Admin, Manager, Member, and Viewer access for organization/member/invitation operations and the upcoming project/task/comment domains. `authorizePermission` checks the active organization membership loaded from MongoDB; it never trusts client-supplied roles. `authorizeResource` additionally verifies the resource organization matches the authorized context and supports a resource-specific policy callback (for example, assignee/creator checks).
+
+Role assignments use a strict rank hierarchy: Owner is the only role that can assign Admin; Owner cannot be assigned through member management or removed; admins cannot manage peers or the Owner; managers can invite/remove only lower-level roles. Member services enforce these checks independently of the HTTP middleware. Resource endpoints in future project/task phases should use the resource middleware and scope their model query to the authorized organization.

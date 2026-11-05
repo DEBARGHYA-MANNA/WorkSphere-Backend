@@ -10,6 +10,8 @@ describe('Centralized RBAC permissions', () => {
 
   test('unknown roles and permissions are denied by default', () => {
     expect(hasPermission('Unknown', PERMISSIONS.ORGANIZATION_READ)).toBe(false);
+    expect(hasPermission('constructor', PERMISSIONS.ORGANIZATION_READ)).toBe(false);
+    expect(hasPermission('__proto__', PERMISSIONS.ORGANIZATION_READ)).toBe(false);
     expect(hasPermission('Member', 'organization:delete')).toBe(false);
   });
 });
