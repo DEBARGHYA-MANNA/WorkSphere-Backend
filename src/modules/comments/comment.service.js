@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Comment = require('./comment.model');
 const OrganizationMember = require('../members/organization-member.model');
 const ProjectMember = require('../projects/project-member.model');
@@ -20,7 +21,7 @@ function createCommentService({
   async function validateMentions(organizationId, project, mentions = [], session) {
     if (!mentions.length) return [];
     let memberQuery = OrganizationMemberModel.find(organizationScopedFilter(organizationId, {
-      userId: { $in: mentions },
+      userId: mongoose.trusted({ $in: mentions }),
       status: 'active'
     }));
     if (session) memberQuery = memberQuery.session(session);
@@ -34,7 +35,7 @@ function createCommentService({
     if (!restrictedIds.length) return members;
     let projectMemberQuery = ProjectMemberModel.find(organizationScopedFilter(organizationId, {
       projectId: project._id,
-      userId: { $in: restrictedIds },
+      userId: mongoose.trusted({ $in: restrictedIds }),
       status: 'active'
     }));
     if (session) projectMemberQuery = projectMemberQuery.session(session);

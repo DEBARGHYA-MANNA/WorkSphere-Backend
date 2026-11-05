@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Task = require('../tasks/task.model');
 const Project = require('../projects/project.model');
 const notificationService = require('./notification.service');
@@ -17,15 +18,15 @@ function createDeadlineReminderRunner({
     const now = clock();
     const reminderCutoff = new Date(now.getTime() + reminderWindowMs);
     const tasks = await TaskModel.find({
-      status: { $nin: ['done', 'cancelled'] },
-      assigneeId: { $ne: null },
-      dueDate: { $ne: null, $lte: reminderCutoff }
+      status: mongoose.trusted({ $nin: ['done', 'cancelled'] }),
+      assigneeId: mongoose.trusted({ $ne: null }),
+      dueDate: mongoose.trusted({ $ne: null, $lte: reminderCutoff })
     }).select('_id organizationId projectId assigneeId title dueDate').lean();
     if (!tasks.length) return { checked: 0, created: 0 };
 
     const projects = await ProjectModel.find({
-      organizationId: { $in: [...new Set(tasks.map((task) => String(task.organizationId)))] },
-      _id: { $in: [...new Set(tasks.map((task) => String(task.projectId)))] },
+      organizationId: mongoose.trusted({ $in: [...new Set(tasks.map((task) => String(task.organizationId)))] }),
+      _id: mongoose.trusted({ $in: [...new Set(tasks.map((task) => String(task.projectId)))] }),
       archivedAt: null
     }).select('_id').lean();
     const activeProjectIds = new Set(projects.map((project) => String(project._id)));
@@ -61,7 +62,7 @@ function createDeadlineReminderRunner({
 
 function startDeadlineReminderScheduler({ intervalMs = DEFAULT_INTERVAL_MS, runner = createDeadlineReminderRunner() } = {}) {
   const runSafely = () => runner().catch((error) => {
-    logger.error('Deadline reminder scan failed', { error: error.message, stack: error.stack });
+    logger.error(`Deadline reminder scan failed: ${error.message}`, { stack: error.stack });
   });
   const timer = setInterval(runSafely, intervalMs);
   timer.unref?.();

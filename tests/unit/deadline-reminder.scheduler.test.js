@@ -41,8 +41,9 @@ describe('Deadline reminder scheduler', () => {
       category: 'task_overdue', recipientId: USER_ID, taskId: 'task-late'
     }));
     expect(TaskModel.find).toHaveBeenCalledWith(expect.objectContaining({
-      status: { $nin: ['done', 'cancelled'] },
-      dueDate: { $ne: null, $lte: expect.any(Date) }
+      status: expect.objectContaining({ $nin: ['done', 'cancelled'] }),
+      assigneeId: expect.objectContaining({ $ne: null }),
+      dueDate: expect.objectContaining({ $ne: null, $lte: expect.any(Date) })
     }));
   });
 
