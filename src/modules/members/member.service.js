@@ -1,11 +1,19 @@
 const OrganizationMember = require('./organization-member.model');
+const ProjectMember = require('../projects/project-member.model');
 const User = require('../users/user.model');
 const AppError = require('../../utils/app-error');
 const { organizationScopedFilter } = require('../../utils/tenant-access');
 const { paginationMetadata } = require('../../utils/pagination');
 const { canAssignRole, canManageMember } = require('../../constants/permissions');
+const withMongoTransaction = require('../../utils/mongo-transaction');
 
-function createMemberService({ MemberModel = OrganizationMember, UserModel = User, clock = () => new Date() } = {}) {
+function createMemberService({
+  MemberModel = OrganizationMember,
+  ProjectMemberModel = ProjectMember,
+  UserModel = User,
+  runInTransaction = withMongoTransaction,
+  clock = () => new Date()
+} = {}) {
   async function list(organizationId, { page, limit }) {
     const filter = organizationScopedFilter(organizationId, { status: 'active' });
     const [members, total] = await Promise.all([
@@ -59,13 +67,21 @@ function createMemberService({ MemberModel = OrganizationMember, UserModel = Use
       throw new AppError('You cannot remove this organization member', 403, 'MEMBER_REMOVAL_FORBIDDEN');
     }
 
-    const removed = await MemberModel.findOneAndUpdate(
-      organizationScopedFilter(organizationId, { _id: memberId, status: 'active', role: target.role }),
-      { $set: { status: 'removed', removedAt: clock(), removedBy: actorMembership.userId } },
-      { new: true, runValidators: true }
-    );
-    if (!removed) throw new AppError('Member role changed; reload and try again', 409, 'MEMBER_ROLE_CHANGED');
-    return removed;
+    return runInTransaction(async (session) => {
+      const removedAt = clock();
+      const removed = await MemberModel.findOneAndUpdate(
+        organizationScopedFilter(organizationId, { _id: memberId, status: 'active', role: target.role }),
+        { $set: { status: 'removed', removedAt, removedBy: actorMembership.userId } },
+        { new: true, runValidators: true, session }
+      );
+      if (!removed) throw new AppError('Member role changed; reload and try again', 409, 'MEMBER_ROLE_CHANGED');
+      await ProjectMemberModel.updateMany(
+        organizationScopedFilter(organizationId, { userId: target.userId, status: 'active' }),
+        { $set: { status: 'removed', removedAt, removedBy: actorMembership.userId } },
+        { session }
+      );
+      return removed;
+    });
   }
 
   return { list, updateRole, remove };

@@ -8,6 +8,14 @@ describe('Centralized RBAC permissions', () => {
     }
   });
 
+  test('project member management is explicit for organization Managers but not Members', () => {
+    expect(hasPermission('Owner', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(true);
+    expect(hasPermission('Admin', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(true);
+    expect(hasPermission('Manager', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(true);
+    expect(hasPermission('Member', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(false);
+    expect(hasPermission('Viewer', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(false);
+  });
+
   test('unknown roles and permissions are denied by default', () => {
     expect(hasPermission('Unknown', PERMISSIONS.ORGANIZATION_READ)).toBe(false);
     expect(hasPermission('constructor', PERMISSIONS.ORGANIZATION_READ)).toBe(false);

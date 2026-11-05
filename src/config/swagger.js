@@ -12,7 +12,8 @@ module.exports = {
     { name: 'Users', description: 'Profile and self-service account management' },
     { name: 'Organizations', description: 'Organization setup, settings, and switching' },
     { name: 'Members', description: 'Tenant-scoped member and role management' },
-    { name: 'Invitations', description: 'Organization invitations and acceptance' }
+    { name: 'Invitations', description: 'Organization invitations and acceptance' },
+    { name: 'Projects', description: 'Tenant-scoped projects, lifecycle, and project membership' }
   ],
   paths: {
     '/health': {
@@ -204,7 +205,7 @@ module.exports = {
         responses: { 200: { description: 'Organization updated' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Organization not found or inaccessible' } }
       },
       delete: {
-        tags: ['Organizations'], summary: 'Delete organization and related membership/invitation records (Owner)', security: [{ bearerAuth: [] }],
+        tags: ['Organizations'], summary: 'Delete organization and related membership, invitation, and project records (Owner)', security: [{ bearerAuth: [] }],
         responses: { 200: { description: 'Organization deleted' }, 403: { description: 'Only the Owner may delete' }, 404: { description: 'Organization not found or inaccessible' } }
       }
     },
@@ -233,6 +234,102 @@ module.exports = {
       delete: {
         tags: ['Members'], summary: 'Remove a member (subject to role hierarchy)', security: [{ bearerAuth: [] }],
         responses: { 200: { description: 'Member removed' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Member not found in this organization' } }
+      }
+    },
+    '/organizations/{organizationId}/projects': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Projects'], summary: 'List projects visible to the current organization member', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'q', schema: { type: 'string', maxLength: 100 } },
+          { in: 'query', name: 'status', schema: { type: 'string', enum: ['planning', 'active', 'on_hold', 'completed', 'cancelled'] } },
+          { in: 'query', name: 'visibility', schema: { type: 'string', enum: ['organization', 'private'] } },
+          { in: 'query', name: 'archived', schema: { type: 'boolean', default: false } },
+          { in: 'query', name: 'dueAfter', schema: { type: 'string', format: 'date' } },
+          { in: 'query', name: 'dueBefore', schema: { type: 'string', format: 'date' } },
+          { in: 'query', name: 'sort', schema: { type: 'string', enum: ['createdAt', 'updatedAt', 'name', 'dueDate'] } },
+          { in: 'query', name: 'order', schema: { type: 'string', enum: ['asc', 'desc'] } }
+        ],
+        responses: { 200: { description: 'Filtered, paginated projects visible to the caller' }, 403: { description: 'Insufficient permission' } }
+      },
+      post: {
+        tags: ['Projects'], summary: 'Create a project and assign its creator as project Owner', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProjectCreateRequest' } } } },
+        responses: { 201: { description: 'Project created with initial Owner membership' }, 400: { description: 'Validation failed' }, 403: { description: 'Insufficient permission' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Projects'], summary: 'Get a project after tenant and project visibility checks', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Project details' }, 404: { description: 'Project not found or inaccessible' }, 403: { description: 'Insufficient permission' } }
+      },
+      patch: {
+        tags: ['Projects'], summary: 'Update project fields', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProjectUpdateRequest' } } } },
+        responses: { 200: { description: 'Project updated' }, 400: { description: 'Validation failed' }, 403: { description: 'Insufficient permission' }, 409: { description: 'Archived projects must be restored first' } }
+      },
+      delete: {
+        tags: ['Projects'], summary: 'Permanently delete a project and its project memberships', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Project deleted' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Project not found or inaccessible' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/archive': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      patch: {
+        tags: ['Projects'], summary: 'Archive a project without deleting its data', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Project archived' }, 403: { description: 'Insufficient permission' }, 409: { description: 'Project is already archived' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/restore': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      patch: {
+        tags: ['Projects'], summary: 'Restore an archived project', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Project restored' }, 403: { description: 'Insufficient permission' }, 409: { description: 'Project is not archived' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/members': {
+      get: {
+        tags: ['Projects'], summary: 'List active project members', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'path', name: 'organizationId', required: true, schema: { type: 'string' } },
+          { in: 'path', name: 'projectId', required: true, schema: { type: 'string' } },
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } }
+        ],
+        responses: { 200: { description: 'Paginated project members' }, 404: { description: 'Project not found or inaccessible' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/members/{userId}': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'userId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      post: {
+        tags: ['Projects'], summary: 'Add an active organization member to the project', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProjectMemberAddRequest' } } } },
+        responses: { 201: { description: 'Project membership created' }, 404: { description: 'User is not an active member of this organization' }, 409: { description: 'User is already a project member' } }
+      },
+      patch: {
+        tags: ['Projects'], summary: 'Change a project member role', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProjectMemberRoleRequest' } } } },
+        responses: { 200: { description: 'Project member role updated' }, 403: { description: 'Project Owner role is protected' }, 404: { description: 'Project member not found' } }
+      },
+      delete: {
+        tags: ['Projects'], summary: 'Remove a project member (the project Owner is protected)', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Project member removed' }, 403: { description: 'Project Owner role is protected' }, 404: { description: 'Project member not found' } }
       }
     },
     '/organizations/{organizationId}/invitations': {
@@ -354,6 +451,36 @@ module.exports = {
       AcceptInvitationRequest: {
         type: 'object', required: ['token'],
         properties: { token: { type: 'string', minLength: 32, maxLength: 256 } }
+      },
+      ProjectCreateRequest: {
+        type: 'object', required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 160 },
+          description: { type: 'string', maxLength: 5000 },
+          status: { type: 'string', enum: ['planning', 'active', 'on_hold', 'completed', 'cancelled'] },
+          visibility: { type: 'string', enum: ['organization', 'private'] },
+          startDate: { type: 'string', format: 'date-time', nullable: true },
+          dueDate: { type: 'string', format: 'date-time', nullable: true }
+        }
+      },
+      ProjectUpdateRequest: {
+        type: 'object', minProperties: 1,
+        properties: {
+          name: { type: 'string', minLength: 2, maxLength: 160 },
+          description: { type: 'string', maxLength: 5000 },
+          status: { type: 'string', enum: ['planning', 'active', 'on_hold', 'completed', 'cancelled'] },
+          visibility: { type: 'string', enum: ['organization', 'private'] },
+          startDate: { type: 'string', format: 'date-time', nullable: true },
+          dueDate: { type: 'string', format: 'date-time', nullable: true }
+        }
+      },
+      ProjectMemberAddRequest: {
+        type: 'object',
+        properties: { role: { type: 'string', enum: ['Editor', 'Viewer'], default: 'Editor' } }
+      },
+      ProjectMemberRoleRequest: {
+        type: 'object', required: ['role'],
+        properties: { role: { type: 'string', enum: ['Editor', 'Viewer'] } }
       }
     }
   }

@@ -1,6 +1,6 @@
 # WorkSphere Backend
 
-WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–4: Foundation, Authentication, User Management, and Organizations/Multi-Tenancy**.
+WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–6: Foundation, Authentication, User Management, Organizations/Multi-Tenancy, RBAC, and Project Management**.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ Organization creation/deletion and invitation acceptance use multi-document tran
 
 ## Current scope
 
-The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, and tenant access checks are implemented in phases. Project, task, comment, notification, activity, and analytics modules remain future work.
+The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, and project management APIs are implemented in phases. Task, comment, notification, activity, and analytics modules remain future work.
 
 ## Authentication (Phase 2)
 
@@ -85,17 +85,28 @@ Profile updates reject account-status or role fields; users can only deactivate 
 
 - `POST /api/v1/organizations` creates an organization with its initial Owner membership in one MongoDB transaction.
 - `GET /api/v1/organizations` lists only organizations where the authenticated user has an active membership.
-- `GET`, `PATCH`, `DELETE /api/v1/organizations/:organizationId` enforce membership and role permissions; deletion is limited to the Owner and transactionally removes organization memberships and invitations.
+- `GET`, `PATCH`, `DELETE /api/v1/organizations/:organizationId` enforce membership and role permissions; deletion is limited to the Owner and transactionally removes organization memberships, invitations, projects, and project memberships.
 - `POST /api/v1/organizations/:organizationId/switch` confirms and returns the selected organization context. All organization-scoped routes independently validate membership; clients cannot switch by simply supplying an arbitrary ID.
 - `GET /api/v1/organizations/:organizationId/members` provides tenant-scoped, paginated member listings. Role changes and removals enforce a strict hierarchy; Owner cannot be assigned or removed.
 - Nested organization invitation routes create, list, and revoke invitations. `POST /api/v1/invitations/accept` requires a valid, unexpired token and the matching verified account email; acceptance atomically activates membership and consumes the token.
 
 Roles are Owner, Admin, Manager, Member, and Viewer, with permission checks centralized in `src/constants/permissions.js`. Organization-owned queries use a required organization scope helper. User lookup remains self-scoped until organization membership provides a safe directory boundary.
 
-Organization creation/deletion and invitation acceptance depend on MongoDB transaction support. Configure the database as a replica set as described above. The mail transport abstraction must be configured to deliver organization invitations.
+Organization creation/deletion, project creation/deletion, organization-member removal (which revokes project memberships), and invitation acceptance depend on MongoDB transaction support. Configure the database as a replica set as described above. The mail transport abstraction must be configured to deliver organization invitations.
 
 ## Role-based access control (Phase 5)
 
-The centralized permission matrix in `src/constants/permissions.js` defines Owner, Admin, Manager, Member, and Viewer access for organization/member/invitation operations and the upcoming project/task/comment domains. `authorizePermission` checks the active organization membership loaded from MongoDB; it never trusts client-supplied roles. `authorizeResource` additionally verifies the resource organization matches the authorized context and supports a resource-specific policy callback (for example, assignee/creator checks).
+The centralized permission matrix in `src/constants/permissions.js` defines Owner, Admin, Manager, Member, and Viewer access across organization, member, invitation, and project operations. `authorizePermission` checks the active organization membership loaded from MongoDB; it never trusts client-supplied roles. `authorizeResource` additionally verifies the resource organization matches the authorized context and supports project-specific visibility and project-role policies.
 
-Role assignments use a strict rank hierarchy: Owner is the only role that can assign Admin; Owner cannot be assigned through member management or removed; admins cannot manage peers or the Owner; managers can invite/remove only lower-level roles. Member services enforce these checks independently of the HTTP middleware. Resource endpoints in future project/task phases should use the resource middleware and scope their model query to the authorized organization.
+Role assignments use a strict rank hierarchy: Owner is the only role that can assign Admin; Owner cannot be assigned through organization member management or removed; admins cannot manage peers or the Owner; managers can invite/remove only lower-level roles. Project membership has Owner, Editor, and Viewer roles; only an active organization member can be added, the project creator receives Owner, and that Owner membership is protected. Removing someone from an organization also removes their active project memberships transactionally.
+
+## Project management (Phase 6)
+
+All project APIs are nested under `/api/v1/organizations/:organizationId/projects` and require an authenticated, active organization membership:
+
+- `POST /` and `GET /` create and list tenant-scoped projects. Listing supports name search, status, visibility, archive state, due-date range, whitelisted sorting, and pagination. Organization-visible projects are visible to organization members; private projects are visible to their members and organization Owner/Admin/Manager roles.
+- `GET /:projectId`, `PATCH /:projectId`, and `DELETE /:projectId` retrieve, update, and permanently delete a project. Updates are blocked while archived; deletion also removes project-membership records.
+- `PATCH /:projectId/archive` and `PATCH /:projectId/restore` archive and restore projects without hard deletion.
+- `GET /:projectId/members`, `POST /:projectId/members/:userId`, `PATCH /:projectId/members/:userId`, and `DELETE /:projectId/members/:userId` list and manage project membership. Assignable roles are Editor and Viewer; the creator remains the protected project Owner.
+
+Project ownership is separate from organization role: project Owner/Editor/Viewer permissions are combined with the centrally defined organization permissions, and project queries always include the authorized organization ID. Project create/delete and organization member removal use MongoDB transactions.
