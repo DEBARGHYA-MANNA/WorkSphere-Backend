@@ -86,7 +86,8 @@ function createMemoryProjectModels() {
 
   const OrganizationMemberModel = { findOne: jest.fn().mockResolvedValue({ status: 'active' }) };
   const UserModel = { find: () => query([]) };
-  return { projects, projectMembers, ProjectModel, ProjectMemberModel, OrganizationMemberModel, UserModel };
+  const TaskModel = { deleteMany: jest.fn(), updateMany: jest.fn() };
+  return { projects, projectMembers, ProjectModel, ProjectMemberModel, OrganizationMemberModel, UserModel, TaskModel };
 }
 
 describe('Project service', () => {
@@ -155,18 +156,20 @@ describe('Project service', () => {
     models.projects.push(project);
     const runInTransaction = jest.fn(transaction);
     const memberDelete = jest.spyOn(models.ProjectMemberModel, 'deleteMany');
+    const taskDelete = { deleteMany: jest.fn() };
     const projectDelete = jest.spyOn(models.ProjectModel, 'deleteOne');
-    const service = createProjectService({ ...models, runInTransaction });
+    const service = createProjectService({ ...models, TaskModel: taskDelete, runInTransaction });
 
     await service.remove(project, ORG_ID);
     expect(runInTransaction).toHaveBeenCalledTimes(1);
+    expect(taskDelete.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(memberDelete).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(projectDelete).toHaveBeenCalledWith({ organizationId: ORG_ID, _id: PROJECT_ID }, { session: { id: 'test-session' } });
   });
 
   test('adds only active organization members, changes project roles, and protects Owner membership', async () => {
     const models = createMemoryProjectModels();
-    const service = createProjectService(models);
+    const service = createProjectService({ ...models, runInTransaction: transaction });
     const member = await service.addMember(ORG_ID, PROJECT_ID, OWNER_ID, MEMBER_ID, 'Viewer');
     expect(member).toMatchObject({ role: 'Viewer', status: 'active', addedBy: OWNER_ID });
     await expect(service.addMember(ORG_ID, PROJECT_ID, OWNER_ID, MEMBER_ID, 'Editor'))
@@ -180,5 +183,10 @@ describe('Project service', () => {
     member.role = 'Editor';
     const removed = await service.removeMember(ORG_ID, PROJECT_ID, MEMBER_ID, OWNER_ID);
     expect(removed).toMatchObject({ status: 'removed', removedBy: OWNER_ID });
+    expect(models.TaskModel.updateMany).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, projectId: PROJECT_ID, assigneeId: MEMBER_ID },
+      { $set: { assigneeId: null, updatedBy: OWNER_ID } },
+      { session: { id: 'test-session' } }
+    );
   });
 });

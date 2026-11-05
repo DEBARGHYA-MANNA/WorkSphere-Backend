@@ -13,7 +13,8 @@ module.exports = {
     { name: 'Organizations', description: 'Organization setup, settings, and switching' },
     { name: 'Members', description: 'Tenant-scoped member and role management' },
     { name: 'Invitations', description: 'Organization invitations and acceptance' },
-    { name: 'Projects', description: 'Tenant-scoped projects, lifecycle, and project membership' }
+    { name: 'Projects', description: 'Tenant-scoped projects, lifecycle, and project membership' },
+    { name: 'Tasks', description: 'Project-scoped tasks, assignment, workflow, and dependencies' }
   ],
   paths: {
     '/health': {
@@ -205,7 +206,7 @@ module.exports = {
         responses: { 200: { description: 'Organization updated' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Organization not found or inaccessible' } }
       },
       delete: {
-        tags: ['Organizations'], summary: 'Delete organization and related membership, invitation, and project records (Owner)', security: [{ bearerAuth: [] }],
+        tags: ['Organizations'], summary: 'Delete organization and related membership, invitation, project, and task records (Owner)', security: [{ bearerAuth: [] }],
         responses: { 200: { description: 'Organization deleted' }, 403: { description: 'Only the Owner may delete' }, 404: { description: 'Organization not found or inaccessible' } }
       }
     },
@@ -275,7 +276,7 @@ module.exports = {
         responses: { 200: { description: 'Project updated' }, 400: { description: 'Validation failed' }, 403: { description: 'Insufficient permission' }, 409: { description: 'Archived projects must be restored first' } }
       },
       delete: {
-        tags: ['Projects'], summary: 'Permanently delete a project and its project memberships', security: [{ bearerAuth: [] }],
+        tags: ['Projects'], summary: 'Permanently delete a project, its tasks, and project memberships', security: [{ bearerAuth: [] }],
         responses: { 200: { description: 'Project deleted' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Project not found or inaccessible' } }
       }
     },
@@ -330,6 +331,113 @@ module.exports = {
       delete: {
         tags: ['Projects'], summary: 'Remove a project member (the project Owner is protected)', security: [{ bearerAuth: [] }],
         responses: { 200: { description: 'Project member removed' }, 403: { description: 'Project Owner role is protected' }, 404: { description: 'Project member not found' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/tasks': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Tasks'], summary: 'List project tasks with filtering, sorting, and pagination', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'q', schema: { type: 'string', maxLength: 120 } },
+          { in: 'query', name: 'status', schema: { type: 'string', enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'] } },
+          { in: 'query', name: 'priority', schema: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] } },
+          { in: 'query', name: 'assigneeId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'parentTaskId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'label', schema: { type: 'string', maxLength: 40 } },
+          { in: 'query', name: 'dueAfter', schema: { type: 'string', format: 'date' } },
+          { in: 'query', name: 'dueBefore', schema: { type: 'string', format: 'date' } },
+          { in: 'query', name: 'sort', schema: { type: 'string', enum: ['createdAt', 'updatedAt', 'dueDate', 'title', 'priority', 'status'] } },
+          { in: 'query', name: 'order', schema: { type: 'string', enum: ['asc', 'desc'] } }
+        ],
+        responses: { 200: { description: 'Paginated project tasks' }, 403: { description: 'Insufficient permission' } }
+      },
+      post: {
+        tags: ['Tasks'], summary: 'Create a task or subtask in the project', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/TaskCreateRequest' } } } },
+        responses: { 201: { description: 'Task created' }, 400: { description: 'Validation failed' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Parent or dependency not found in this project' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/tasks/{taskId}': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'taskId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Tasks'], summary: 'Get a task within its authorized organization and project', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Task details' }, 404: { description: 'Task not found or inaccessible' } }
+      },
+      patch: {
+        tags: ['Tasks'], summary: 'Update task details, status, priority, due date, labels, subtask parent, or dependencies', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/TaskUpdateRequest' } } } },
+        responses: { 200: { description: 'Task updated' }, 400: { description: 'Validation failed' }, 403: { description: 'Insufficient permission' }, 409: { description: 'Task relationship cycle detected' } }
+      },
+      delete: {
+        tags: ['Tasks'], summary: 'Delete a task and clean its parent/dependency references', security: [{ bearerAuth: [] }],
+        responses: { 200: { description: 'Task deleted' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Task not found' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/tasks/{taskId}/status': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'taskId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      patch: {
+        tags: ['Tasks'], summary: 'Change a task workflow status', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/TaskStatusRequest' } } } },
+        responses: { 200: { description: 'Task status changed; completion timestamp is maintained' }, 403: { description: 'Insufficient permission' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/tasks/{taskId}/assignee': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'taskId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      patch: {
+        tags: ['Tasks'], summary: 'Assign or unassign a task', security: [{ bearerAuth: [] }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/TaskAssignmentRequest' } } } },
+        responses: { 200: { description: 'Task assignment updated' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Assignee is not eligible for this project' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/tasks/{taskId}/subtasks': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'taskId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Tasks'], summary: 'List direct subtasks of a task', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } }
+        ],
+        responses: { 200: { description: 'Paginated subtasks' }, 404: { description: 'Parent task not found' } }
+      }
+    },
+    '/organizations/{organizationId}/tasks/my': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Tasks'], summary: 'List tasks assigned to the current user across accessible projects', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'q', schema: { type: 'string', maxLength: 120 } },
+          { in: 'query', name: 'status', schema: { type: 'string', enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'] } },
+          { in: 'query', name: 'priority', schema: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] } },
+          { in: 'query', name: 'label', schema: { type: 'string', maxLength: 40 } },
+          { in: 'query', name: 'dueAfter', schema: { type: 'string', format: 'date' } },
+          { in: 'query', name: 'dueBefore', schema: { type: 'string', format: 'date' } },
+          { in: 'query', name: 'sort', schema: { type: 'string', enum: ['createdAt', 'updatedAt', 'dueDate', 'title', 'priority', 'status'] } },
+          { in: 'query', name: 'order', schema: { type: 'string', enum: ['asc', 'desc'] } }
+        ],
+        responses: { 200: { description: 'Paginated tasks assigned to the authenticated user' }, 403: { description: 'Insufficient permission' } }
       }
     },
     '/organizations/{organizationId}/invitations': {
@@ -451,6 +559,40 @@ module.exports = {
       AcceptInvitationRequest: {
         type: 'object', required: ['token'],
         properties: { token: { type: 'string', minLength: 32, maxLength: 256 } }
+      },
+      TaskCreateRequest: {
+        type: 'object', required: ['title'],
+        properties: {
+          title: { type: 'string', minLength: 2, maxLength: 180 },
+          description: { type: 'string', maxLength: 10000 },
+          status: { type: 'string', enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'] },
+          priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
+          dueDate: { type: 'string', format: 'date-time', nullable: true },
+          labels: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 40 } },
+          parentTaskId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$', nullable: true },
+          dependencies: { type: 'array', maxItems: 25, uniqueItems: true, items: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+        }
+      },
+      TaskUpdateRequest: {
+        type: 'object', minProperties: 1,
+        properties: {
+          title: { type: 'string', minLength: 2, maxLength: 180 },
+          description: { type: 'string', maxLength: 10000 },
+          status: { type: 'string', enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'] },
+          priority: { type: 'string', enum: ['low', 'medium', 'high', 'urgent'] },
+          dueDate: { type: 'string', format: 'date-time', nullable: true },
+          labels: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 40 } },
+          parentTaskId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$', nullable: true },
+          dependencies: { type: 'array', maxItems: 25, uniqueItems: true, items: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+        }
+      },
+      TaskAssignmentRequest: {
+        type: 'object', required: ['assigneeId'],
+        properties: { assigneeId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$', nullable: true } }
+      },
+      TaskStatusRequest: {
+        type: 'object', required: ['status'],
+        properties: { status: { type: 'string', enum: ['todo', 'in_progress', 'in_review', 'done', 'cancelled'] } }
       },
       ProjectCreateRequest: {
         type: 'object', required: ['name'],

@@ -3,6 +3,7 @@ const OrganizationMember = require('../members/organization-member.model');
 const Invitation = require('../invitations/invitation.model');
 const Project = require('../projects/project.model');
 const ProjectMember = require('../projects/project-member.model');
+const Task = require('../tasks/task.model');
 const AppError = require('../../utils/app-error');
 const withMongoTransaction = require('../../utils/mongo-transaction');
 const { organizationScopedFilter } = require('../../utils/tenant-access');
@@ -24,6 +25,7 @@ function createOrganizationService({
   InvitationModel = Invitation,
   ProjectModel = Project,
   ProjectMemberModel = ProjectMember,
+  TaskModel = Task,
   runInTransaction = withMongoTransaction
 } = {}) {
   async function listForUser(userId, { page, limit }) {
@@ -76,6 +78,7 @@ function createOrganizationService({
     await runInTransaction(async (session) => {
       const scope = organizationScopedFilter(organization._id);
       await InvitationModel.deleteMany(scope, { session });
+      await TaskModel.deleteMany(scope, { session });
       await ProjectMemberModel.deleteMany(scope, { session });
       await ProjectModel.deleteMany(scope, { session });
       await MemberModel.deleteMany(scope, { session });

@@ -1,5 +1,6 @@
 const Project = require('./project.model');
 const ProjectMember = require('./project-member.model');
+const Task = require('../tasks/task.model');
 const OrganizationMember = require('../members/organization-member.model');
 const User = require('../users/user.model');
 const AppError = require('../../utils/app-error');
@@ -14,6 +15,7 @@ function escapeRegex(value) {
 function createProjectService({
   ProjectModel = Project,
   ProjectMemberModel = ProjectMember,
+  TaskModel = Task,
   OrganizationMemberModel = OrganizationMember,
   UserModel = User,
   runInTransaction = withMongoTransaction,
@@ -92,6 +94,7 @@ function createProjectService({
   async function remove(project, organizationId) {
     await runInTransaction(async (session) => {
       const scope = organizationScopedFilter(organizationId, { projectId: project._id });
+      await TaskModel.deleteMany(scope, { session });
       await ProjectMemberModel.deleteMany(scope, { session });
       await ProjectModel.deleteOne(organizationScopedFilter(organizationId, { _id: project._id }), { session });
     });
@@ -196,13 +199,21 @@ function createProjectService({
     if (!member) throw new AppError('Project member not found', 404, 'PROJECT_MEMBER_NOT_FOUND');
     if (member.role === 'Owner') throw new AppError('Project owner cannot be removed', 403, 'PROJECT_OWNER_PROTECTED');
 
-    const removed = await ProjectMemberModel.findOneAndUpdate(
-      organizationScopedFilter(organizationId, { projectId, userId, status: 'active', role: member.role }),
-      { $set: { status: 'removed', removedAt: clock(), removedBy: actorId } },
-      { new: true, runValidators: true }
-    );
-    if (!removed) throw new AppError('Project member changed; reload and try again', 409, 'PROJECT_MEMBER_CHANGED');
-    return removed;
+    return runInTransaction(async (session) => {
+      const removedAt = clock();
+      const removed = await ProjectMemberModel.findOneAndUpdate(
+        organizationScopedFilter(organizationId, { projectId, userId, status: 'active', role: member.role }),
+        { $set: { status: 'removed', removedAt, removedBy: actorId } },
+        { new: true, runValidators: true, session }
+      );
+      if (!removed) throw new AppError('Project member changed; reload and try again', 409, 'PROJECT_MEMBER_CHANGED');
+      await TaskModel.updateMany(
+        organizationScopedFilter(organizationId, { projectId, assigneeId: userId }),
+        { $set: { assigneeId: null, updatedBy: actorId } },
+        { session }
+      );
+      return removed;
+    });
   }
 
   return { create, list, update, remove, archive, restore, listMembers, addMember, updateMemberRole, removeMember };

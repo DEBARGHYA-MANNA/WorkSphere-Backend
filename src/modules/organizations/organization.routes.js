@@ -9,6 +9,7 @@ const validation = require('./organization.validation');
 const memberRoutes = require('../members/member.routes');
 const { organizationRouter: invitationRoutes } = require('../invitations/invitation.routes');
 const projectRoutes = require('../projects/project.routes');
+const myTaskRoutes = require('../tasks/my-task.routes');
 
 const router = express.Router();
 router.use(authenticate);
@@ -27,5 +28,6 @@ router.delete('/:organizationId', authorizeOrganizationPermission(PERMISSIONS.OR
 router.use('/:organizationId/members', memberRoutes);
 router.use('/:organizationId/invitations', invitationRoutes);
 router.use('/:organizationId/projects', projectRoutes);
+router.use('/:organizationId/tasks', myTaskRoutes);
 
 module.exports = router;

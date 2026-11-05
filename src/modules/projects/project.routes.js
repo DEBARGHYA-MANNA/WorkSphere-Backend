@@ -5,6 +5,7 @@ const { PERMISSIONS } = require('../../constants/permissions');
 const projectAccess = require('./project-access');
 const controller = require('./project.controller');
 const validation = require('./project.validation');
+const taskRoutes = require('../tasks/task.routes');
 
 const router = express.Router({ mergeParams: true });
 
@@ -67,5 +68,6 @@ router.delete('/:projectId/members/:userId',
   projectAccess(PERMISSIONS.PROJECT_MANAGE_MEMBERS),
   controller.removeMember
 );
+router.use('/:projectId/tasks', taskRoutes);
 
 module.exports = router;
