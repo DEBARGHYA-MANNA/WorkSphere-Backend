@@ -86,7 +86,15 @@ function createMemoryModels({ projectVisibility = 'organization', organizationRo
   const OrganizationMemberModel = {
     findOne: jest.fn().mockResolvedValue({ status: 'active', role: organizationRole })
   };
-  return { tasks, TaskModel, ProjectModel, ProjectMemberModel, OrganizationMemberModel };
+  const ActivityService = { record: jest.fn().mockResolvedValue({}) };
+  const NotificationService = { create: jest.fn().mockResolvedValue({}) };
+  const CommentModel = { deleteMany: jest.fn() };
+  const NotificationModel = { deleteMany: jest.fn() };
+  const runInTransaction = jest.fn(transaction);
+  return {
+    tasks, TaskModel, ProjectModel, ProjectMemberModel, OrganizationMemberModel,
+    ActivityService, NotificationService, CommentModel, NotificationModel, runInTransaction
+  };
 }
 
 describe('Task service', () => {
@@ -105,6 +113,24 @@ describe('Task service', () => {
       labels: ['release'],
       priority: 'high'
     });
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'task_created', targetId: task._id, actorId: USER_ID
+    }), { id: 'task-session' });
+  });
+
+  test('notifies a different assignee when a task is created already assigned', async () => {
+    const models = createMemoryModels();
+    const service = createTaskService(models);
+    const task = await service.create(ORG_ID, PROJECT_ID, USER_ID, {
+      title: 'Review release', assigneeId: OTHER_USER_ID
+    });
+    expect(models.NotificationService.create).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      recipientId: OTHER_USER_ID,
+      actorId: USER_ID,
+      category: 'task_assigned',
+      taskId: task._id
+    }), { id: 'task-session' });
   });
 
   test('validates parent tasks and same-project dependencies and rejects relationship cycles', async () => {
@@ -132,6 +158,9 @@ describe('Task service', () => {
     await service.assign(task, USER_ID, OTHER_USER_ID);
     expect(task.assigneeId).toBe(OTHER_USER_ID);
     expect(task.updatedBy).toBe(USER_ID);
+    expect(models.NotificationService.create).toHaveBeenCalledWith(expect.objectContaining({
+      category: 'task_assigned', recipientId: OTHER_USER_ID, taskId: task._id
+    }), { id: 'task-session' });
     expect(models.OrganizationMemberModel.findOne).toHaveBeenCalledWith({
       organizationId: ORG_ID, userId: OTHER_USER_ID, status: 'active'
     });
@@ -179,7 +208,15 @@ describe('Task service', () => {
     expect(task.completedAt).toBeNull();
 
     await service.remove(task, USER_ID);
-    expect(runInTransaction).toHaveBeenCalledTimes(1);
+    expect(runInTransaction).toHaveBeenCalledTimes(3);
+    expect(models.CommentModel.deleteMany).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, projectId: PROJECT_ID, taskId: TASK_ONE_ID },
+      { session: { id: 'task-session' } }
+    );
+    expect(models.NotificationModel.deleteMany).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, projectId: PROJECT_ID, taskId: TASK_ONE_ID },
+      { session: { id: 'task-session' } }
+    );
     expect(child).toMatchObject({ parentTaskId: null, dependencies: [], updatedBy: USER_ID });
   });
 });

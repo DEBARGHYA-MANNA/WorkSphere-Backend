@@ -5,10 +5,14 @@ const { PERMISSIONS } = require('../../constants/permissions');
 const taskAccess = require('./task-access');
 const controller = require('./task.controller');
 const validation = require('./task.validation');
+const commentRoutes = require('../comments/comment.routes');
 
 const router = express.Router({ mergeParams: true });
 router.use(validate(validation.projectTaskParamsSchema, 'params'));
-router.use(projectAccess(PERMISSIONS.PROJECT_READ));
+router.use(projectAccess(PERMISSIONS.PROJECT_READ), (req, res, next) => {
+  req.project = req.resource;
+  return next();
+});
 
 router.get('/',
   taskAccess.authorizeCollection(PERMISSIONS.TASK_READ),
@@ -54,5 +58,6 @@ router.get('/:taskId/subtasks',
   validate(validation.paginationSchema, 'query'),
   controller.listSubtasks
 );
+router.use('/:taskId/comments', commentRoutes);
 
 module.exports = router;

@@ -87,7 +87,13 @@ function createMemoryProjectModels() {
   const OrganizationMemberModel = { findOne: jest.fn().mockResolvedValue({ status: 'active' }) };
   const UserModel = { find: () => query([]) };
   const TaskModel = { deleteMany: jest.fn(), updateMany: jest.fn() };
-  return { projects, projectMembers, ProjectModel, ProjectMemberModel, OrganizationMemberModel, UserModel, TaskModel };
+  const CommentModel = { deleteMany: jest.fn() };
+  const ActivityModel = { deleteMany: jest.fn() };
+  const NotificationModel = { deleteMany: jest.fn() };
+  return {
+    projects, projectMembers, ProjectModel, ProjectMemberModel, OrganizationMemberModel, UserModel,
+    TaskModel, CommentModel, ActivityModel, NotificationModel
+  };
 }
 
 describe('Project service', () => {
@@ -164,6 +170,9 @@ describe('Project service', () => {
     expect(runInTransaction).toHaveBeenCalledTimes(1);
     expect(taskDelete.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(memberDelete).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
+    expect(models.CommentModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
+    expect(models.ActivityModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
+    expect(models.NotificationModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(projectDelete).toHaveBeenCalledWith({ organizationId: ORG_ID, _id: PROJECT_ID }, { session: { id: 'test-session' } });
   });
 
@@ -186,6 +195,10 @@ describe('Project service', () => {
     expect(models.TaskModel.updateMany).toHaveBeenCalledWith(
       { organizationId: ORG_ID, projectId: PROJECT_ID, assigneeId: MEMBER_ID },
       { $set: { assigneeId: null, updatedBy: OWNER_ID } },
+      { session: { id: 'test-session' } }
+    );
+    expect(models.NotificationModel.deleteMany).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, projectId: PROJECT_ID, recipientId: MEMBER_ID },
       { session: { id: 'test-session' } }
     );
   });

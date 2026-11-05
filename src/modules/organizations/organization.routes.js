@@ -10,6 +10,7 @@ const memberRoutes = require('../members/member.routes');
 const { organizationRouter: invitationRoutes } = require('../invitations/invitation.routes');
 const projectRoutes = require('../projects/project.routes');
 const myTaskRoutes = require('../tasks/my-task.routes');
+const notificationRoutes = require('../notifications/notification.routes');
 
 const router = express.Router();
 router.use(authenticate);
@@ -29,5 +30,6 @@ router.use('/:organizationId/members', memberRoutes);
 router.use('/:organizationId/invitations', invitationRoutes);
 router.use('/:organizationId/projects', projectRoutes);
 router.use('/:organizationId/tasks', myTaskRoutes);
+router.use('/:organizationId/notifications', notificationRoutes);
 
 module.exports = router;

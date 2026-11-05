@@ -7,12 +7,14 @@ const asyncHandler = require('../../utils/async-handler');
 const AppError = require('../../utils/app-error');
 
 const PROJECT_TASK_PERMISSIONS = Object.freeze({
-  Owner: Object.freeze(Object.values(PERMISSIONS).filter((permission) => permission.startsWith('task:'))),
+  Owner: Object.freeze(Object.values(PERMISSIONS).filter((permission) => permission.startsWith('task:') || [PERMISSIONS.COMMENT_CREATE, PERMISSIONS.COMMENT_DELETE].includes(permission))),
   Editor: Object.freeze([
     PERMISSIONS.TASK_CREATE,
     PERMISSIONS.TASK_READ,
     PERMISSIONS.TASK_UPDATE,
-    PERMISSIONS.TASK_ASSIGN
+    PERMISSIONS.TASK_ASSIGN,
+    PERMISSIONS.COMMENT_CREATE,
+    PERMISSIONS.COMMENT_DELETE
   ]),
   Viewer: Object.freeze([PERMISSIONS.TASK_READ])
 });
@@ -30,7 +32,7 @@ function createTaskAccess({ TaskModel = Task, ProjectMemberModel = ProjectMember
   }
 
   async function hasPermissionForTask(req, permission) {
-    if (req.resource?.archivedAt && permission !== PERMISSIONS.TASK_READ) {
+    if ((req.project || req.resource)?.archivedAt && permission !== PERMISSIONS.TASK_READ) {
       throw new AppError('Archived projects are read-only until restored', 409, 'PROJECT_ARCHIVED');
     }
     const organizationRole = req.membership.role;

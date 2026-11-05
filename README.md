@@ -1,6 +1,6 @@
 # WorkSphere Backend
 
-WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–7: Foundation, Authentication, User Management, Organizations/Multi-Tenancy, RBAC, Project Management, and Task Management**.
+WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–9: Foundation, Authentication, User Management, Organizations/Multi-Tenancy, RBAC, Project Management, Task Management, Comments/Collaboration, and Notifications**.
 
 ## Requirements
 
@@ -43,11 +43,11 @@ The initial integration tests exercise the HTTP foundation and do not require a 
 
 ## MongoDB transactions
 
-Organization creation/deletion and invitation acceptance use multi-document transactions, which require MongoDB to run as a replica set or sharded cluster. A local standalone `mongod` is sufficient for health endpoints but not these operations. For local transaction development, configure MongoDB as a single-node replica set and connect using a replica-set URI, for example `mongodb://127.0.0.1:27017/worksphere?replicaSet=rs0`.
+Organization and project creation/deletion, task creation/update/status/assignment/deletion, comment create/update/delete with activity/mention notifications, organization-member removal, project-member removal, and invitation acceptance use multi-document transactions. These operations require MongoDB to run as a replica set or sharded cluster. A local standalone `mongod` is sufficient for health endpoints but not these operations. For local transaction development, configure MongoDB as a single-node replica set and connect using a replica-set URI, for example `mongodb://127.0.0.1:27017/worksphere?replicaSet=rs0`.
 
 ## Current scope
 
-The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, project management, and task management APIs are implemented in phases. Comment, notification, activity, and analytics modules remain future work.
+The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, project/task management, comments, activity history, and notifications are implemented in phases. Analytics remains future work.
 
 ## Authentication (Phase 2)
 
@@ -116,3 +116,11 @@ Project ownership is separate from organization role: project Owner/Editor/Viewe
 Project tasks are nested under `/api/v1/organizations/:organizationId/projects/:projectId/tasks`. `GET` lists filtered and sorted tasks with pagination; `POST` creates tasks with status, priority, due date, labels, subtask parent, and same-project dependency fields. `GET /:taskId`, `PATCH /:taskId`, and `DELETE /:taskId` retrieve, update, and delete tasks. `PATCH /:taskId/status` updates workflow state, and `PATCH /:taskId/assignee` assigns or unassigns an active organization member (private projects also require project membership). `GET /:taskId/subtasks` lists direct subtasks. `GET /api/v1/organizations/:organizationId/tasks/my` lists tasks assigned to the authenticated user across projects they can access.
 
 Task authorization combines active organization RBAC with project membership roles; private-project visibility and tenant-scoped task queries are enforced on every project task route. Editors can create/update/assign tasks; Viewers are read-only. Dependency and parent relationships must stay within the same project and cycles are rejected. Deleting a task clears references from dependent tasks and unparents its subtasks transactionally. Removing an organization member clears their task assignments, and removing someone from a project unassigns them from that project's tasks.
+
+## Comments and collaboration (Phase 8)
+
+Comments are nested under `/api/v1/organizations/:organizationId/projects/:projectId/tasks/:taskId/comments`. `GET /` retrieves paginated comments; `POST /` creates a comment with optional mentioned organization-member IDs; `PATCH /:commentId` edits the author's comment; and `DELETE /:commentId` soft-deletes it. Mention targets must be active in the organization and, for private projects, have project access. Mentions generate in-app notifications. Task and comment create/update/delete, status, and assignment events are persisted to an immutable project activity feed at `/api/v1/organizations/:organizationId/projects/:projectId/activity`.
+
+## Notifications (Phase 9)
+
+Notifications are private to the authenticated recipient and organization-scoped: `GET /api/v1/organizations/:organizationId/notifications` provides category filtering, unread-only filtering, and pagination; `GET /unread-count` returns the unread count; `PATCH /:notificationId/read` and `PATCH /read-all` mark notifications as read. Notifications are generated for task assignment and comment mentions. A small native Node.js interval scan creates idempotent due-soon and overdue task reminders; it uses MongoDB unique dedupe keys and does not require Redis or BullMQ.

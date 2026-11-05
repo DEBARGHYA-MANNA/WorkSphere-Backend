@@ -25,6 +25,7 @@ const taskSchema = new mongoose.Schema({
 taskSchema.index({ organizationId: 1, projectId: 1, status: 1, updatedAt: -1 }, { name: 'tasks_project_status_recent' });
 taskSchema.index({ organizationId: 1, projectId: 1, priorityRank: -1, updatedAt: -1 }, { name: 'tasks_project_priority_recent' });
 taskSchema.index({ organizationId: 1, projectId: 1, dueDate: 1 }, { name: 'tasks_project_due_date' });
+taskSchema.index({ dueDate: 1, assigneeId: 1, status: 1 }, { name: 'tasks_deadline_reminders' });
 taskSchema.index({ organizationId: 1, projectId: 1, assigneeId: 1, status: 1 }, { name: 'tasks_project_assignee_status' });
 taskSchema.index({ organizationId: 1, projectId: 1, parentTaskId: 1 }, { name: 'tasks_project_parent' });
 taskSchema.index({ organizationId: 1, projectId: 1, labels: 1 }, { name: 'tasks_project_labels' });

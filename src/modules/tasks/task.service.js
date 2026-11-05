@@ -1,8 +1,12 @@
 const Task = require('./task.model');
+const Comment = require('../comments/comment.model');
+const Notification = require('../notifications/notification.model');
 const Project = require('../projects/project.model');
 const ProjectMember = require('../projects/project-member.model');
 const OrganizationMember = require('../members/organization-member.model');
 const AppError = require('../../utils/app-error');
+const ActivityService = require('../activities/activity.service');
+const NotificationService = require('../notifications/notification.service');
 const withMongoTransaction = require('../../utils/mongo-transaction');
 const { organizationScopedFilter } = require('../../utils/tenant-access');
 const { paginationMetadata } = require('../../utils/pagination');
@@ -33,9 +37,13 @@ function buildFilter(organizationId, projectId, options = {}) {
 
 function createTaskService({
   TaskModel = Task,
+  CommentModel = Comment,
+  NotificationModel = Notification,
   ProjectModel = Project,
   ProjectMemberModel = ProjectMember,
   OrganizationMemberModel = OrganizationMember,
+  ActivityService: activityLog = ActivityService,
+  NotificationService: notifications = NotificationService,
   runInTransaction = withMongoTransaction,
   clock = () => new Date()
 } = {}) {
@@ -112,20 +120,48 @@ function createTaskService({
     if (fields.dependencies?.length) await validateDependencies(organizationId, projectId, fields.dependencies);
     if (fields.assigneeId) await validateAssignee(organizationId, projectId, fields.assigneeId);
 
-    const task = new TaskModel({
-      ...fields,
-      organizationId,
-      projectId,
-      createdBy: userId,
-      updatedBy: userId
+    return runInTransaction(async (session) => {
+      const task = new TaskModel({
+        ...fields,
+        organizationId,
+        projectId,
+        createdBy: userId,
+        updatedBy: userId
+      });
+      try {
+        await task.save({ session });
+      } catch (error) {
+        if (error.code === 11000) throw new AppError('Task conflicts with an existing task', 409, 'TASK_CONFLICT');
+        throw error;
+      }
+      await activityLog.record({
+        organizationId,
+        projectId,
+        taskId: task._id,
+        actorId: userId,
+        action: 'task_created',
+        targetType: 'task',
+        targetId: task._id,
+        metadata: { title: task.title }
+      }, session);
+      if (task.assigneeId && String(task.assigneeId) !== String(userId)) {
+        await notifications.create({
+          organizationId,
+          recipientId: task.assigneeId,
+          actorId: userId,
+          category: 'task_assigned',
+          title: 'A task was assigned to you',
+          message: `You were assigned: ${task.title}`,
+          projectId,
+          taskId: task._id,
+          sourceType: 'task',
+          sourceId: task._id,
+          link: `/api/v1/organizations/${organizationId}/projects/${projectId}/tasks/${task._id}`,
+          metadata: { taskTitle: task.title }
+        }, session);
+      }
+      return task;
     });
-    try {
-      await task.save();
-    } catch (error) {
-      if (error.code === 11000) throw new AppError('Task conflicts with an existing task', 409, 'TASK_CONFLICT');
-      throw error;
-    }
-    return task;
   }
 
   async function list(organizationId, projectId, options) {
@@ -176,29 +212,84 @@ function createTaskService({
     if (Object.hasOwn(changes, 'dependencies')) {
       await validateDependencies(task.organizationId, task.projectId, changes.dependencies, task._id);
     }
-    for (const field of ['title', 'description', 'status', 'priority', 'dueDate', 'labels', 'parentTaskId', 'dependencies']) {
-      if (Object.hasOwn(changes, field)) task[field] = changes[field];
-    }
-    if (Object.hasOwn(changes, 'status')) task.completedAt = changes.status === 'done' ? (task.completedAt || clock()) : null;
-    task.updatedBy = userId;
-    await task.save();
-    return task;
+    return runInTransaction(async (session) => {
+      for (const field of ['title', 'description', 'status', 'priority', 'dueDate', 'labels', 'parentTaskId', 'dependencies']) {
+        if (Object.hasOwn(changes, field)) task[field] = changes[field];
+      }
+      if (Object.hasOwn(changes, 'status')) task.completedAt = changes.status === 'done' ? (task.completedAt || clock()) : null;
+      task.updatedBy = userId;
+      await task.save({ session });
+      const action = Object.hasOwn(changes, 'status') ? 'task_status_changed' : 'task_updated';
+      await activityLog.record({
+        organizationId: task.organizationId,
+        projectId: task.projectId,
+        taskId: task._id,
+        actorId: userId,
+        action,
+        targetType: 'task',
+        targetId: task._id,
+        metadata: { changedFields: Object.keys(changes) }
+      }, session);
+      return task;
+    });
   }
 
   async function updateStatus(task, userId, status) {
-    task.status = status;
-    task.completedAt = status === 'done' ? (task.completedAt || clock()) : null;
-    task.updatedBy = userId;
-    await task.save();
-    return task;
+    return runInTransaction(async (session) => {
+      const previousStatus = task.status;
+      task.status = status;
+      task.completedAt = status === 'done' ? (task.completedAt || clock()) : null;
+      task.updatedBy = userId;
+      await task.save({ session });
+      await activityLog.record({
+        organizationId: task.organizationId,
+        projectId: task.projectId,
+        taskId: task._id,
+        actorId: userId,
+        action: 'task_status_changed',
+        targetType: 'task',
+        targetId: task._id,
+        metadata: { previousStatus, status }
+      }, session);
+      return task;
+    });
   }
 
   async function assign(task, userId, assigneeId) {
     await validateAssignee(task.organizationId, task.projectId, assigneeId);
-    task.assigneeId = assigneeId || null;
-    task.updatedBy = userId;
-    await task.save();
-    return task;
+    return runInTransaction(async (session) => {
+      const previousAssigneeId = task.assigneeId;
+      task.assigneeId = assigneeId || null;
+      task.updatedBy = userId;
+      await task.save({ session });
+      await activityLog.record({
+        organizationId: task.organizationId,
+        projectId: task.projectId,
+        taskId: task._id,
+        actorId: userId,
+        action: 'task_assigned',
+        targetType: 'task',
+        targetId: task._id,
+        metadata: { previousAssigneeId, assigneeId: task.assigneeId }
+      }, session);
+      if (task.assigneeId && String(task.assigneeId) !== String(userId)) {
+        await notifications.create({
+          organizationId: task.organizationId,
+          recipientId: task.assigneeId,
+          actorId: userId,
+          category: 'task_assigned',
+          title: 'A task was assigned to you',
+          message: `You were assigned: ${task.title}`,
+          projectId: task.projectId,
+          taskId: task._id,
+          sourceType: 'task',
+          sourceId: task._id,
+          link: `/api/v1/organizations/${task.organizationId}/projects/${task.projectId}/tasks/${task._id}`,
+          metadata: { taskTitle: task.title }
+        }, session);
+      }
+      return task;
+    });
   }
 
   async function remove(task, actorId) {
@@ -214,6 +305,24 @@ function createTaskService({
         { $pull: { dependencies: task._id }, $set: { updatedBy: actorId } },
         { session }
       );
+      await CommentModel.deleteMany(organizationScopedFilter(task.organizationId, {
+        projectId: task.projectId,
+        taskId: task._id
+      }), { session });
+      await NotificationModel.deleteMany(organizationScopedFilter(task.organizationId, {
+        projectId: task.projectId,
+        taskId: task._id
+      }), { session });
+      await activityLog.record({
+        organizationId: task.organizationId,
+        projectId: task.projectId,
+        taskId: task._id,
+        actorId,
+        action: 'task_deleted',
+        targetType: 'task',
+        targetId: task._id,
+        metadata: { title: task.title }
+      }, session);
       await TaskModel.deleteOne({ ...scope, _id: task._id }, { session });
     });
   }

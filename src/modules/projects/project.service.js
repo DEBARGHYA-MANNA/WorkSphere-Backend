@@ -1,6 +1,9 @@
 const Project = require('./project.model');
 const ProjectMember = require('./project-member.model');
 const Task = require('../tasks/task.model');
+const Comment = require('../comments/comment.model');
+const Activity = require('../activities/activity.model');
+const Notification = require('../notifications/notification.model');
 const OrganizationMember = require('../members/organization-member.model');
 const User = require('../users/user.model');
 const AppError = require('../../utils/app-error');
@@ -16,6 +19,9 @@ function createProjectService({
   ProjectModel = Project,
   ProjectMemberModel = ProjectMember,
   TaskModel = Task,
+  CommentModel = Comment,
+  ActivityModel = Activity,
+  NotificationModel = Notification,
   OrganizationMemberModel = OrganizationMember,
   UserModel = User,
   runInTransaction = withMongoTransaction,
@@ -95,6 +101,9 @@ function createProjectService({
     await runInTransaction(async (session) => {
       const scope = organizationScopedFilter(organizationId, { projectId: project._id });
       await TaskModel.deleteMany(scope, { session });
+      await CommentModel.deleteMany(scope, { session });
+      await ActivityModel.deleteMany(scope, { session });
+      await NotificationModel.deleteMany(scope, { session });
       await ProjectMemberModel.deleteMany(scope, { session });
       await ProjectModel.deleteOne(organizationScopedFilter(organizationId, { _id: project._id }), { session });
     });
@@ -212,6 +221,7 @@ function createProjectService({
         { $set: { assigneeId: null, updatedBy: actorId } },
         { session }
       );
+      await NotificationModel.deleteMany(organizationScopedFilter(organizationId, { projectId, recipientId: userId }), { session });
       return removed;
     });
   }
