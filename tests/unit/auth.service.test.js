@@ -1,4 +1,5 @@
 const authCrypto = require('../../src/utils/auth-crypto');
+const env = require('../../src/config/env');
 const { createAuthService } = require('../../src/modules/auth/auth.service');
 
 function query(value) {
@@ -118,7 +119,12 @@ describe('Authentication service', () => {
       sendVerificationEmail: jest.fn().mockResolvedValue(undefined),
       sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined)
     };
-    service = createAuthService({ UserModel: models.UserModel, RefreshTokenModel: models.RefreshTokenModel, mail });
+    service = createAuthService({
+      UserModel: models.UserModel,
+      RefreshTokenModel: models.RefreshTokenModel,
+      mail,
+      config: { ...env, emailVerificationEnabled: true }
+    });
   });
 
   test('registration bcrypt-hashes passwords and stores only a hashed verification token', async () => {
@@ -132,6 +138,28 @@ describe('Authentication service', () => {
     expect(persisted.emailVerificationTokenHash).toBe(authCrypto.hashToken(mailedToken));
     expect(persisted.emailVerificationTokenHash).not.toBe(mailedToken);
     expect(user.emailVerified).toBe(false);
+  });
+
+  test('verification is skipped by default and the new account can sign in immediately', async () => {
+    const noVerificationService = createAuthService({
+      UserModel: models.UserModel,
+      RefreshTokenModel: models.RefreshTokenModel,
+      mail,
+      config: { ...env, emailVerificationEnabled: false }
+    });
+
+    const user = await noVerificationService.register(validRegistration);
+    expect(user.emailVerified).toBe(false);
+    expect(user.emailVerificationTokenHash).toBeNull();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+    const session = await noVerificationService.login(validRegistration);
+    expect(session).toMatchObject({ user: { email: validRegistration.email }, accessToken: expect.any(String) });
+    await expect(noVerificationService.refresh(session.refreshToken)).resolves.toMatchObject({
+      user: { email: validRegistration.email }
+    });
+    await expect(noVerificationService.verifyEmail('v'.repeat(43))).rejects.toMatchObject({
+      code: 'EMAIL_VERIFICATION_DISABLED'
+    });
   });
 
   test('duplicate registrations are rejected without creating a second account', async () => {
@@ -185,6 +213,7 @@ describe('Authentication service', () => {
       UserModel: timedModels.UserModel,
       RefreshTokenModel: timedModels.RefreshTokenModel,
       mail: timedMail,
+      config: { ...env, emailVerificationEnabled: true },
       clock: () => now
     });
     await timedService.register(validRegistration);

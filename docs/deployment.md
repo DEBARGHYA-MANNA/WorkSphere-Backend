@@ -12,6 +12,7 @@ This service is a Node.js 20+ / MongoDB backend. Analytics uses MongoDB 5.0+ agg
    - `MONGODB_URI`: a credentialed TLS connection to a MongoDB 5.0+ replica set/sharded cluster, with least-privilege application credentials.
    - `CORS_ORIGIN`: comma-separated exact browser origins; wildcard and implicit localhost defaults are rejected in production.
    - `COOKIE_SAME_SITE`: `lax` for same-site deployments or `none` for cross-site HTTPS deployments. Production cookies are Secure and HttpOnly.
+   - `EMAIL_VERIFICATION_ENABLED`: currently defaults to `false`; only set to `true` after a production mail transport is configured and tested. With it disabled, registration signs users in without verifying email ownership.
 4. Configure a trusted TLS-terminating reverse proxy. Set `TRUST_PROXY_HOPS` only to the known proxy-hop count; leave it at zero when connecting directly.
 5. Tune `MONGODB_MAX_POOL_SIZE`, `MONGODB_MIN_POOL_SIZE`, MongoDB selection/socket timeouts, `REQUEST_TIMEOUT_MS`, and `SHUTDOWN_TIMEOUT_MS` to the deployment's concurrency and platform limits.
 

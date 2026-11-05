@@ -12,7 +12,7 @@ WorkSphere Backend v2 is a modular, multi-tenant REST API built with Node.js 20+
 
 ## Modules
 
-- **Auth and users** — registration, email verification, sign-in, refresh/logout, password reset, self-service profile and account lifecycle.
+- **Auth and users** — registration, sign-in, refresh/logout, password reset, self-service profile and account lifecycle. Email verification is controlled by `EMAIL_VERIFICATION_ENABLED` and is off by default until mail delivery is integrated.
 - **Organizations, members, invitations** — tenant creation, memberships, role hierarchy, invitation lifecycle, and organization settings.
 - **Projects and tasks** — organization-owned projects, private-project memberships, task workflow, assignees, subtasks, and dependencies.
 - **Comments and notifications** — task discussion, mentions, recipient-scoped notifications, and due/overdue reminders.

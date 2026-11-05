@@ -217,7 +217,7 @@ describe('Organization member service', () => {
 });
 
 describe('Organization invitations', () => {
-  test('creates hashed invitations and accepts them only for the verified matching account', async () => {
+  test('creates hashed invitations and accepts them for the matching active account while verification is disabled', async () => {
     const models = createInvitationModels();
     const invitation = await models.service.create({
       organization: models.organization,
@@ -230,7 +230,7 @@ describe('Organization invitations', () => {
     expect(invitation.role).toBe('Member');
     expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'invitation_created' }), { id: 'test-session' });
 
-    const user = { _id: MEMBER_ID, email: 'new.member@example.com', emailVerified: true, status: 'active' };
+    const user = { _id: MEMBER_ID, email: 'new.member@example.com', emailVerified: false, status: 'active' };
     const result = await models.service.accept({ token, user });
     expect(result.organization._id).toBe(ORG_ID);
     expect(result.membership).toMatchObject({ userId: MEMBER_ID, role: 'Member', status: 'active' });

@@ -4,6 +4,7 @@ const AppError = require('../../utils/app-error');
 const authCrypto = require('../../utils/auth-crypto');
 const mailer = require('../../services/mailer');
 const logger = require('../../logger');
+const env = require('../../config/env');
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -12,6 +13,7 @@ function createUserService({
   RefreshTokenModel = RefreshToken,
   crypto = authCrypto,
   mail = mailer,
+  config = env,
   clock = () => new Date()
 } = {}) {
   async function findById(userId, includePassword = false) {
@@ -52,7 +54,7 @@ function createUserService({
     const user = await getProfile(userId);
     const normalizedEmail = changes.email?.toLowerCase();
     const emailChanged = Boolean(normalizedEmail && normalizedEmail !== user.email);
-    const verificationToken = emailChanged ? crypto.createOpaqueToken(32) : null;
+    const verificationToken = emailChanged && config.emailVerificationEnabled ? crypto.createOpaqueToken(32) : null;
 
     if (emailChanged) {
       const existing = await UserModel.findOne({ email: normalizedEmail });
@@ -64,8 +66,10 @@ function createUserService({
       user.emailVerifiedAt = null;
       user.passwordResetTokenHash = null;
       user.passwordResetExpiresAt = null;
-      user.emailVerificationTokenHash = crypto.hashToken(verificationToken);
-      user.emailVerificationExpiresAt = new Date(clock().getTime() + EMAIL_VERIFICATION_TTL_MS);
+      user.emailVerificationTokenHash = verificationToken ? crypto.hashToken(verificationToken) : null;
+      user.emailVerificationExpiresAt = verificationToken
+        ? new Date(clock().getTime() + EMAIL_VERIFICATION_TTL_MS)
+        : null;
     }
 
     for (const field of ['name', 'bio', 'avatarUrl', 'timezone']) {
@@ -83,10 +87,10 @@ function createUserService({
 
     if (emailChanged) {
       await revokeSessions(userId);
-      await sendVerificationSafely(user, verificationToken);
+      if (verificationToken) await sendVerificationSafely(user, verificationToken);
     }
 
-    return { user, emailVerificationRequired: emailChanged };
+    return { user, emailVerificationRequired: Boolean(verificationToken) };
   }
 
   async function changePassword(userId, { currentPassword, newPassword }) {

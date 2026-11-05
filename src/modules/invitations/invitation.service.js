@@ -12,6 +12,7 @@ const { organizationScopedFilter } = require('../../utils/tenant-access');
 const { paginationMetadata } = require('../../utils/pagination');
 const { canAssignRole, canManageMember } = require('../../constants/permissions');
 const activityService = require('../activities/activity.service');
+const env = require('../../config/env');
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKEN_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -24,6 +25,7 @@ function createInvitationService({
   crypto = authCrypto,
   mail = mailer,
   ActivityService = activityService,
+  config = env,
   runInTransaction = withMongoTransaction,
   clock = () => new Date()
 } = {}) {
@@ -130,8 +132,8 @@ function createInvitationService({
   }
 
   async function accept({ token, user }) {
-    if (!user.emailVerified || user.status !== 'active') {
-      throw new AppError('A verified active account is required to accept an invitation', 403, 'EMAIL_VERIFICATION_REQUIRED');
+    if ((config.emailVerificationEnabled && !user.emailVerified) || user.status !== 'active') {
+      throw new AppError('An active account is required to accept an invitation', 403, 'EMAIL_VERIFICATION_REQUIRED');
     }
     const tokenHash = crypto.hashToken(token);
     const now = clock();

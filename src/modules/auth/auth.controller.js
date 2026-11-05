@@ -27,8 +27,10 @@ const register = asyncHandler(async (req, res) => {
   const user = await authService.register(req.validated.body);
   res.status(201).json({
     success: true,
-    message: 'Registration successful. Check your email to verify your account.',
-    data: { user: serializeUser(user), emailVerificationRequired: true },
+    message: env.emailVerificationEnabled
+      ? 'Registration successful. Check your email to verify your account.'
+      : 'Registration successful. You can sign in now.',
+    data: { user: serializeUser(user), emailVerificationRequired: env.emailVerificationEnabled },
     requestId: req.id
   });
 });
@@ -48,7 +50,9 @@ const resendVerification = asyncHandler(async (req, res) => {
   await authService.resendVerification(req.validated.body.email);
   res.status(200).json({
     success: true,
-    message: 'If the account exists and needs verification, instructions have been sent',
+    message: env.emailVerificationEnabled
+      ? 'If the account exists and needs verification, instructions have been sent'
+      : 'Email verification is currently disabled',
     data: null,
     requestId: req.id
   });

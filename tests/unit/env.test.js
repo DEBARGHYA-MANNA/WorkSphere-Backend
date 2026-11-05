@@ -45,5 +45,13 @@ describe('Environment configuration', () => {
     expect(config.mongooseAutoIndex).toBe(false);
     expect(config.corsOrigins).toEqual(['https://app.example.test']);
     expect(config.cookieSameSite).toBe('none');
+    expect(config.emailVerificationEnabled).toBe(false);
+
+    const enabled = loadEnv({
+      JWT_ACCESS_SECRET: 'strong-random-production-secret-value-123456',
+      EMAIL_VERIFICATION_ENABLED: 'true'
+    });
+    expect(enabled.status).toBe(0);
+    expect(JSON.parse(enabled.stdout).emailVerificationEnabled).toBe(true);
   });
 });

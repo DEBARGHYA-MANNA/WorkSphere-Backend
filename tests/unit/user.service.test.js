@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const authCrypto = require('../../src/utils/auth-crypto');
+const env = require('../../src/config/env');
 const { createUserService } = require('../../src/modules/users/user.service');
 
 const USER_ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
@@ -103,7 +104,12 @@ describe('User management service', () => {
       { userId: OTHER_ID, sessionId: 'other-session', revokedAt: null }
     );
     mail = { sendVerificationEmail: jest.fn().mockResolvedValue(undefined) };
-    service = createUserService({ UserModel: models.UserModel, RefreshTokenModel: models.RefreshTokenModel, mail });
+    service = createUserService({
+      UserModel: models.UserModel,
+      RefreshTokenModel: models.RefreshTokenModel,
+      mail,
+      config: { ...env, emailVerificationEnabled: true }
+    });
   });
 
   test('retrieves profile and rejects lookup outside the current-user scope', async () => {
@@ -133,6 +139,22 @@ describe('User management service', () => {
     expect(user.emailVerificationTokenHash).toBe(authCrypto.hashToken(emailedToken));
     expect(models.refreshTokens[0].revokedAt).toBeInstanceOf(Date);
     expect(models.refreshTokens[1].revokedAt).toBeNull();
+  });
+
+  test('email changes do not require verification while the feature is disabled', async () => {
+    const noVerificationService = createUserService({
+      UserModel: models.UserModel,
+      RefreshTokenModel: models.RefreshTokenModel,
+      mail,
+      config: { ...env, emailVerificationEnabled: false }
+    });
+
+    const result = await noVerificationService.updateProfile(USER_ID, { email: 'avery.new@example.com' });
+    expect(result.user.emailVerified).toBe(false);
+    expect(result.emailVerificationRequired).toBe(false);
+    expect(result.user.emailVerificationTokenHash).toBeNull();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+    expect(models.refreshTokens[0].revokedAt).toBeInstanceOf(Date);
   });
 
   test('rejects profile email conflicts', async () => {

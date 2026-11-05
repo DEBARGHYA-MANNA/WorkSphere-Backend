@@ -19,14 +19,14 @@ The live OpenAPI 3 document is served at `GET /openapi.json`; Swagger UI is at `
 
 ## Authentication lifecycle
 
-1. `POST /api/v1/auth/register` creates an account and starts email verification.
-2. `POST /api/v1/auth/verify-email` verifies the one-time token and starts a session. `POST /resend-verification` requests a fresh delivery.
+1. `POST /api/v1/auth/register` creates an account. Email verification is disabled by default, so the user can sign in immediately without an email step.
+2. `POST /api/v1/auth/verify-email` and `POST /resend-verification` are inactive while `EMAIL_VERIFICATION_ENABLED=false`. Enable that setting only after a verification mail transport is configured; then verification becomes required before login.
 3. `POST /api/v1/auth/login` starts an authenticated session.
 4. Use the returned access token for protected endpoints. `POST /api/v1/auth/refresh` rotates the refresh cookie and returns a new access token.
 5. `POST /api/v1/auth/logout` revokes the current session; authenticated `POST /api/v1/auth/logout-all` revokes all sessions.
 6. `POST /api/v1/auth/forgot-password` and `/reset-password` implement one-time password recovery.
 
-The refresh credential is an HttpOnly cookie; JavaScript clients cannot read it. Email/password reset tokens are single-use. In development with no mail adapter configured, delivery is intentionally skipped and a warning is logged without exposing credentials; production deployments must integrate a real mail transport.
+The refresh credential is an HttpOnly cookie; JavaScript clients cannot read it. Email/password reset tokens are single-use. Verification is temporarily disabled by default and no verification token is exposed in the registration response. Password-reset and invitation email delivery still require a configured mail adapter; never return their tokens in API responses.
 
 ## Account and organization workflows
 
@@ -35,7 +35,7 @@ The refresh credential is an HttpOnly cookie; JavaScript clients cannot read it.
 - `POST /api/v1/organizations` creates an organization and its Owner membership atomically; `GET /api/v1/organizations` lists only active memberships.
 - `GET/PATCH/DELETE /api/v1/organizations/:organizationId` — read/update/delete; only an Owner can delete. `POST .../:organizationId/switch` validates membership and returns the selected context.
 - `GET .../:organizationId/members`; `PATCH .../:organizationId/members/:memberId/role`; `DELETE .../:organizationId/members/:memberId` — tenant-scoped member management.
-- `GET/POST .../:organizationId/invitations`; `DELETE .../:organizationId/invitations/:invitationId`; `POST /api/v1/invitations/accept` — invitation lifecycle. Acceptance requires a valid token and matching verified account email.
+- `GET/POST .../:organizationId/invitations`; `DELETE .../:organizationId/invitations/:invitationId`; `POST /api/v1/invitations/accept` — invitation lifecycle. Acceptance requires a valid token and matching active account email; it requires a verified email only when `EMAIL_VERIFICATION_ENABLED=true`.
 
 ## Project and task workflows
 

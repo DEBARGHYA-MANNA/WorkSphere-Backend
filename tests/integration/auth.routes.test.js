@@ -43,6 +43,9 @@ describe('Authentication HTTP routes', () => {
     });
     expect(response.status).toBe(201);
     expect(response.body.data.user.passwordHash).toBeUndefined();
+    expect(response.body.data.emailVerificationRequired).toBe(false);
+    expect(response.body.data).not.toHaveProperty('verificationToken');
+    expect(response.body.message).toContain('You can sign in now');
     expect(JSON.stringify(response.body)).not.toContain('Correct-Horse-Battery-9');
   });
 
@@ -91,7 +94,7 @@ describe('Authentication HTTP routes', () => {
     authService.resendVerification.mockResolvedValue(undefined);
     const response = await request(app).post('/api/v1/auth/resend-verification').send({ email: 'unknown@example.com' });
     expect(response.status).toBe(200);
-    expect(response.body.message).toContain('If the account exists');
+    expect(response.body.message).toContain('Email verification is currently disabled');
   });
 
   test('rejects malformed bearer tokens before accessing protected resources', async () => {

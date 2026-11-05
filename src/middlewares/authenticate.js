@@ -4,6 +4,7 @@ const asyncHandler = require('../utils/async-handler');
 const { verifyAccessToken } = require('../utils/auth-crypto');
 const User = require('../modules/users/user.model');
 const RefreshToken = require('../modules/auth/refresh-token.model');
+const env = require('../config/env');
 
 const authenticate = asyncHandler(async (req, res, next) => {
   const authorization = req.get('authorization') || '';
@@ -26,7 +27,7 @@ const authenticate = asyncHandler(async (req, res, next) => {
     RefreshToken.exists({ sessionId: claims.sid, revokedAt: null, expiresAt: mongoose.trusted({ $gt: new Date() }) })
   ]);
 
-  if (!user || user.status !== 'active' || !user.emailVerified || !activeSession) {
+  if (!user || user.status !== 'active' || (env.emailVerificationEnabled && !user.emailVerified) || !activeSession) {
     throw new AppError('Access token is invalid or expired', 401, 'INVALID_ACCESS_TOKEN');
   }
 
