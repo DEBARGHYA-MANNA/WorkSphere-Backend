@@ -69,3 +69,13 @@ Email is behind a provider-independent transport interface. Configure a transpor
 ## Authentication test coverage
 
 Authentication service tests cover registration hashing, email verification, credential checks, refresh rotation/reuse revocation, logout, logout-all, and password reset/session invalidation. HTTP tests cover validation, refresh-cookie handling, logout, protected routes, and generic password-reset responses. Tests use isolated in-memory model fakes for service behavior and do not require connecting to a development or production database.
+
+## User management (Phase 3)
+
+- `GET /api/v1/users/me` retrieves the authenticated profile.
+- `PATCH /api/v1/users/me` updates name, bio, avatar URL, timezone, and optionally email. Email changes clear verification, send a new one-time verification token, and revoke existing sessions.
+- `PATCH /api/v1/users/me/password` verifies the current password, changes the hash, and revokes all sessions.
+- `DELETE /api/v1/users/me` performs a password-confirmed soft deactivation, sets account status to disabled, and revokes sessions. It does not hard-delete or anonymize account data.
+- `GET /api/v1/users/:userId` is currently restricted to looking up the authenticated user. A global user directory/search is intentionally deferred until organization membership exists, so users cannot enumerate accounts across tenants.
+
+Profile updates reject account-status or role fields; users can only deactivate their own account. Email re-verification is required before an updated email can be used to sign in.

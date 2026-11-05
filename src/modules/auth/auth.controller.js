@@ -1,21 +1,7 @@
 const authService = require('./auth.service');
 const asyncHandler = require('../../utils/async-handler');
 const env = require('../../config/env');
-
-const REFRESH_COOKIE_NAME = 'worksphereRefreshToken';
-const refreshCookieOptions = () => ({
-  httpOnly: true,
-  secure: env.isProduction,
-  sameSite: env.cookieSameSite,
-  path: '/api/v1/auth',
-  maxAge: env.refreshTokenTtlDays * 24 * 60 * 60 * 1000
-});
-
-function clearRefreshCookie(res) {
-  const options = refreshCookieOptions();
-  delete options.maxAge;
-  res.clearCookie(REFRESH_COOKIE_NAME, options);
-}
+const { REFRESH_COOKIE_NAME, refreshCookieOptions, setRefreshCookie, clearRefreshCookie } = require('./auth.cookies');
 
 function sessionPayload(session) {
   return {
@@ -49,7 +35,7 @@ const register = asyncHandler(async (req, res) => {
 
 const login = asyncHandler(async (req, res) => {
   const session = await authService.login(req.validated.body);
-  res.cookie(REFRESH_COOKIE_NAME, session.refreshToken, refreshCookieOptions());
+  setRefreshCookie(res, session.refreshToken);
   res.status(200).json({
     success: true,
     message: 'Login successful',
@@ -70,7 +56,7 @@ const resendVerification = asyncHandler(async (req, res) => {
 
 const verifyEmail = asyncHandler(async (req, res) => {
   const session = await authService.verifyEmail(req.validated.body.token);
-  res.cookie(REFRESH_COOKIE_NAME, session.refreshToken, refreshCookieOptions());
+  setRefreshCookie(res, session.refreshToken);
   res.status(200).json({
     success: true,
     message: 'Email verified successfully',
@@ -81,7 +67,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
 const refresh = asyncHandler(async (req, res) => {
   const session = await authService.refresh(req.cookies?.[REFRESH_COOKIE_NAME]);
-  res.cookie(REFRESH_COOKIE_NAME, session.refreshToken, refreshCookieOptions());
+  setRefreshCookie(res, session.refreshToken);
   res.status(200).json({
     success: true,
     message: 'Token refreshed successfully',
