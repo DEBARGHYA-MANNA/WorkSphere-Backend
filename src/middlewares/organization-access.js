@@ -4,7 +4,7 @@ const OrganizationMember = require('../modules/members/organization-member.model
 const AppError = require('../utils/app-error');
 const asyncHandler = require('../utils/async-handler');
 const { findActiveMembership } = require('../utils/tenant-access');
-const { hasPermission } = require('../constants/permissions');
+const { authorizePermission } = require('./authorize');
 
 function createOrganizationAccess({ OrganizationModel = Organization, MemberModel = OrganizationMember } = {}) {
   return asyncHandler(async (req, res, next) => {
@@ -29,14 +29,7 @@ function createOrganizationAccess({ OrganizationModel = Organization, MemberMode
   });
 }
 
-function authorizeOrganizationPermission(permission) {
-  return (req, res, next) => {
-    if (!req.membership || !hasPermission(req.membership.role, permission)) {
-      return next(new AppError('You do not have permission to perform this action', 403, 'FORBIDDEN'));
-    }
-    return next();
-  };
-}
+const authorizeOrganizationPermission = authorizePermission;
 
 module.exports = createOrganizationAccess();
 module.exports.createOrganizationAccess = createOrganizationAccess;
