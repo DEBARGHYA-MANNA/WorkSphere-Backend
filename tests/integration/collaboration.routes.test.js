@@ -30,7 +30,7 @@ jest.mock('../../src/modules/tasks/task-access', () => ({
 jest.mock('../../src/modules/comments/comment.service', () => ({
   list: jest.fn(), create: jest.fn(), update: jest.fn(), remove: jest.fn()
 }));
-jest.mock('../../src/modules/activities/activity.service', () => ({ list: jest.fn() }));
+jest.mock('../../src/modules/activities/activity.service', () => ({ list: jest.fn(), listOrganization: jest.fn() }));
 
 const request = require('supertest');
 const app = require('../../src/app');
@@ -72,6 +72,17 @@ describe('Comments and activity API routes', () => {
     const removed = await request(app).delete(`${COMMENT_BASE}/${COMMENT_ID}`);
     expect(removed.status).toBe(200);
     expect(commentService.remove).toHaveBeenCalledWith(expect.objectContaining({ commentId: COMMENT_ID }));
+  });
+
+  test('retrieves organization activity including membership and permission events', async () => {
+    activityService.listOrganization.mockResolvedValue({
+      activities: [{ action: 'member_role_changed' }],
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 }
+    });
+    const response = await request(app).get(`/api/v1/organizations/${ORG_ID}/activity?action=member_role_changed`);
+    expect(response.status).toBe(200);
+    expect(response.body.data[0].action).toBe('member_role_changed');
+    expect(activityService.listOrganization).toHaveBeenCalledWith(ORG_ID, expect.objectContaining({ action: 'member_role_changed' }));
   });
 
   test('retrieves the project activity history', async () => {

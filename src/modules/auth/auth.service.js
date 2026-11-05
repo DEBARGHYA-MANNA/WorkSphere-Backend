@@ -1,4 +1,5 @@
 const { randomUUID } = require('node:crypto');
+const mongoose = require('mongoose');
 const AppError = require('../../utils/app-error');
 const User = require('../users/user.model');
 const RefreshToken = require('./refresh-token.model');
@@ -102,7 +103,7 @@ function createAuthService({
   async function verifyEmail(token) {
     const user = await UserModel.findOneAndUpdate({
       emailVerificationTokenHash: crypto.hashToken(token),
-      emailVerificationExpiresAt: { $gt: clock() },
+      emailVerificationExpiresAt: mongoose.trusted({ $gt: clock() }),
       emailVerified: false,
       status: 'active'
     }, {
@@ -170,7 +171,7 @@ function createAuthService({
       _id: current._id,
       usedAt: null,
       revokedAt: null,
-      expiresAt: { $gt: now }
+      expiresAt: mongoose.trusted({ $gt: now })
     }, {
       $set: { usedAt: now, revokedAt: now, replacedByTokenHash: nextTokenHash }
     }, { new: true });
@@ -219,7 +220,7 @@ function createAuthService({
     const newPasswordHash = await crypto.hashPassword(password);
     const user = await UserModel.findOneAndUpdate({
       passwordResetTokenHash: crypto.hashToken(token),
-      passwordResetExpiresAt: { $gt: clock() },
+      passwordResetExpiresAt: mongoose.trusted({ $gt: clock() }),
       status: 'active',
       emailVerified: true
     }, {

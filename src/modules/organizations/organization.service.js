@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Organization = require('./organization.model');
 const OrganizationMember = require('../members/organization-member.model');
 const Invitation = require('../invitations/invitation.model');
@@ -6,6 +7,7 @@ const ProjectMember = require('../projects/project-member.model');
 const Task = require('../tasks/task.model');
 const Comment = require('../comments/comment.model');
 const Activity = require('../activities/activity.model');
+const activityService = require('../activities/activity.service');
 const Notification = require('../notifications/notification.model');
 const AppError = require('../../utils/app-error');
 const withMongoTransaction = require('../../utils/mongo-transaction');
@@ -31,6 +33,7 @@ function createOrganizationService({
   TaskModel = Task,
   CommentModel = Comment,
   ActivityModel = Activity,
+  ActivityService = activityService,
   NotificationModel = Notification,
   runInTransaction = withMongoTransaction
 } = {}) {
@@ -43,7 +46,7 @@ function createOrganizationService({
     if (!memberships.length) return { organizations: [], pagination: paginationMetadata(page, limit, total) };
 
     const organizationIds = memberships.map((membership) => membership.organizationId);
-    const organizations = await OrganizationModel.find({ _id: { $in: organizationIds }, status: 'active' }).lean();
+    const organizations = await OrganizationModel.find({ _id: mongoose.trusted({ $in: organizationIds }), status: 'active' }).lean();
     const roleByOrganization = new Map(memberships.map((membership) => [String(membership.organizationId), membership.role]));
     const data = organizations.map((organization) => ({ ...organization, role: roleByOrganization.get(String(organization._id)) }));
     return { organizations: data, pagination: paginationMetadata(page, limit, total) };
@@ -59,6 +62,14 @@ function createOrganizationService({
         await organization.save({ session });
         const membership = new MemberModel({ organizationId: organization._id, userId, role: 'Owner', status: 'active' });
         await membership.save({ session });
+        await ActivityService.record({
+          organizationId: organization._id,
+          actorId: userId,
+          action: 'organization_created',
+          targetType: 'organization',
+          targetId: organization._id,
+          metadata: { name: organization.name }
+        }, session);
         return { organization, membership };
       });
     } catch (error) {
@@ -67,14 +78,24 @@ function createOrganizationService({
     }
   }
 
-  async function update(organization, changes) {
-    if (Object.hasOwn(changes, 'name')) organization.name = changes.name;
-    if (Object.hasOwn(changes, 'description')) organization.description = changes.description;
-    if (changes.settings) {
-      for (const [key, value] of Object.entries(changes.settings)) organization.settings[key] = value;
-    }
-    await organization.save();
-    return organization;
+  async function update(organization, changes, actorId) {
+    return runInTransaction(async (session) => {
+      if (Object.hasOwn(changes, 'name')) organization.name = changes.name;
+      if (Object.hasOwn(changes, 'description')) organization.description = changes.description;
+      if (changes.settings) {
+        for (const [key, value] of Object.entries(changes.settings)) organization.settings[key] = value;
+      }
+      await organization.save({ session });
+      await ActivityService.record({
+        organizationId: organization._id,
+        actorId,
+        action: 'organization_updated',
+        targetType: 'organization',
+        targetId: organization._id,
+        metadata: { changedFields: Object.keys(changes) }
+      }, session);
+      return organization;
+    });
   }
 
   async function remove(organization, actorMembership) {

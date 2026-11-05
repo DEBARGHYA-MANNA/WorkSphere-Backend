@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
     "test:watch": "jest --watch",
+    "db:indexes": "node src/scripts/create-indexes.js",
     "lint": "eslint ."
   },
   "engines": {

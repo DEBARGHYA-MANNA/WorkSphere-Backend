@@ -38,6 +38,18 @@ describe('Activity service', () => {
     expect(entries).toHaveLength(1);
   });
 
+  test('retrieves tenant-scoped organization history with action and date filters', async () => {
+    const { ActivityModel, entries } = model();
+    entries.push({ organizationId: ORG_ID, projectId: PROJECT_ID, action: 'member_role_changed', targetType: 'organization_member' });
+    entries.push({ organizationId: 'other-org', projectId: PROJECT_ID, action: 'member_role_changed', targetType: 'organization_member' });
+    const service = createActivityService({ ActivityModel });
+    const result = await service.listOrganization(ORG_ID, { page: 1, limit: 10, action: 'member_role_changed' });
+    expect(result.activities).toEqual([entries[0]]);
+    expect(result.pagination.total).toBe(1);
+    const filter = service.buildFilter(ORG_ID, { from: new Date('2026-01-01'), to: new Date('2026-12-31') });
+    expect(filter).toMatchObject({ organizationId: ORG_ID, createdAt: { $gte: new Date('2026-01-01'), $lte: new Date('2026-12-31') } });
+  });
+
   test('lists activity only for the requested organization/project and optional task', async () => {
     const { ActivityModel, entries } = model();
     entries.push({ organizationId: ORG_ID, projectId: PROJECT_ID, taskId: TASK_ID, action: 'task_created' });

@@ -16,7 +16,8 @@ module.exports = {
     { name: 'Projects', description: 'Tenant-scoped projects, lifecycle, and project membership' },
     { name: 'Tasks', description: 'Project-scoped tasks, assignment, workflow, and dependencies' },
     { name: 'Comments', description: 'Task comments, edits, deletes, and member mentions' },
-    { name: 'Activity', description: 'Immutable project-scoped collaboration and task history' },
+    { name: 'Activity', description: 'Immutable organization, project, membership, task, and comment event history' },
+    { name: 'Analytics', description: 'Tenant-scoped task, project, workload, and productivity aggregates' },
     { name: 'Notifications', description: 'Recipient-scoped notification inbox and read state' }
   ],
   paths: {
@@ -480,6 +481,51 @@ module.exports = {
         responses: { 200: { description: 'Comment deleted' }, 403: { description: 'Insufficient permission' }, 404: { description: 'Comment not found' } }
       }
     },
+    '/organizations/{organizationId}/activity': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Activity'], summary: 'List organization activity including membership and role changes', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
+          { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+          { in: 'query', name: 'projectId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'taskId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'actorId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'action', schema: { type: 'string', enum: ['organization_created', 'organization_updated', 'project_created', 'project_updated', 'project_archived', 'project_restored', 'project_deleted', 'member_joined', 'member_role_changed', 'member_removed', 'project_member_added', 'project_member_role_changed', 'project_member_removed', 'invitation_created', 'invitation_revoked', 'invitation_accepted', 'task_created', 'task_updated', 'task_status_changed', 'task_assigned', 'task_deleted', 'comment_created', 'comment_updated', 'comment_deleted'] } },
+          { in: 'query', name: 'targetType', schema: { type: 'string', enum: ['organization', 'project', 'organization_member', 'project_member', 'invitation', 'task', 'comment'] } },
+          { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } }
+        ],
+        responses: { 200: { description: 'Paginated activity records scoped to this organization' }, 400: { description: 'Invalid filters or date range' }, 403: { description: 'Organization membership is required' } }
+      }
+    },
+    '/organizations/{organizationId}/analytics': {
+      parameters: [{ in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }],
+      get: {
+        tags: ['Analytics'], summary: 'Get organization task, project, workload, and productivity analytics', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'granularity', schema: { type: 'string', enum: ['day', 'week', 'month'], default: 'day' } }
+        ],
+        responses: { 200: { description: 'Organization analytics, distributions, member workload, and completion trends' }, 400: { description: 'Invalid date range' }, 403: { description: 'Owner, Admin, or Manager access required' } }
+      }
+    },
+    '/organizations/{organizationId}/projects/{projectId}/analytics': {
+      parameters: [
+        { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+        { in: 'path', name: 'projectId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+      ],
+      get: {
+        tags: ['Analytics'], summary: 'Get task and productivity analytics for a project', security: [{ bearerAuth: [] }],
+        parameters: [
+          { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'granularity', schema: { type: 'string', enum: ['day', 'week', 'month'], default: 'day' } }
+        ],
+        responses: { 200: { description: 'Project analytics scoped to the active organization' }, 404: { description: 'Project is not accessible' } }
+      }
+    },
     '/organizations/{organizationId}/projects/{projectId}/activity': {
       parameters: [
         { in: 'path', name: 'organizationId', required: true, schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
@@ -490,7 +536,11 @@ module.exports = {
         parameters: [
           { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
           { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100 } },
-          { in: 'query', name: 'taskId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } }
+          { in: 'query', name: 'taskId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'actorId', schema: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' } },
+          { in: 'query', name: 'action', schema: { type: 'string' } },
+          { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+          { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } }
         ],
         responses: { 200: { description: 'Paginated activity events' }, 404: { description: 'Project not found or inaccessible' } }
       }

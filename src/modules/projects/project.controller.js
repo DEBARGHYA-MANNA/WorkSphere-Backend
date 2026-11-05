@@ -47,7 +47,7 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
-  await projectService.remove(req.resource, req.organization._id);
+  await projectService.remove(req.resource, req.organization._id, req.auth.userId);
   res.status(200).json({ success: true, message: 'Project deleted successfully', data: null, requestId: req.id });
 });
 
@@ -98,7 +98,8 @@ const updateMember = asyncHandler(async (req, res) => {
     req.organization._id,
     req.resource._id,
     req.validated.params.userId,
-    req.validated.body.role
+    req.validated.body.role,
+    req.auth.userId
   );
   res.status(200).json({ success: true, message: 'Project member role updated successfully', data: { member }, requestId: req.id });
 });

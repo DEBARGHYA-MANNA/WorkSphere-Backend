@@ -60,18 +60,38 @@ function createDeadlineReminderRunner({
   };
 }
 
+const schedulerStates = new WeakMap();
+
 function startDeadlineReminderScheduler({ intervalMs = DEFAULT_INTERVAL_MS, runner = createDeadlineReminderRunner() } = {}) {
-  const runSafely = () => runner().catch((error) => {
-    logger.error(`Deadline reminder scan failed: ${error.message}`, { stack: error.stack });
-  });
-  const timer = setInterval(runSafely, intervalMs);
+  const state = { stopped: false, activeRun: null };
+  const runSafely = () => {
+    if (state.stopped || state.activeRun) return state.activeRun;
+    state.activeRun = Promise.resolve().then(runner).catch((error) => {
+      logger.error(`Deadline reminder scan failed: ${error.message}`, { stack: error.stack });
+    }).finally(() => {
+      state.activeRun = null;
+    });
+    return state.activeRun;
+  };
+  const timer = setInterval(() => { void runSafely(); }, intervalMs);
   timer.unref?.();
-  runSafely();
+  state.timer = timer;
+  schedulerStates.set(timer, state);
+  void runSafely();
   return timer;
 }
 
-function stopDeadlineReminderScheduler(timer) {
-  if (timer) clearInterval(timer);
+async function stopDeadlineReminderScheduler(timer) {
+  if (!timer) return;
+  const state = schedulerStates.get(timer);
+  if (!state) {
+    clearInterval(timer);
+    return;
+  }
+  state.stopped = true;
+  clearInterval(state.timer);
+  if (state.activeRun) await state.activeRun;
+  schedulerStates.delete(timer);
 }
 
 module.exports = {

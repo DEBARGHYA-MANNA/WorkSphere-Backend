@@ -24,6 +24,12 @@ describe('Centralized RBAC permissions', () => {
     expect(hasPermission('Viewer', PERMISSIONS.PROJECT_MANAGE_MEMBERS)).toBe(false);
   });
 
+  test('organization analytics are restricted to management roles', () => {
+    for (const role of ['Owner', 'Admin', 'Manager']) expect(hasPermission(role, PERMISSIONS.ANALYTICS_READ)).toBe(true);
+    expect(hasPermission('Member', PERMISSIONS.ANALYTICS_READ)).toBe(false);
+    expect(hasPermission('Viewer', PERMISSIONS.ANALYTICS_READ)).toBe(false);
+  });
+
   test('unknown roles and permissions are denied by default', () => {
     expect(hasPermission('Unknown', PERMISSIONS.ORGANIZATION_READ)).toBe(false);
     expect(hasPermission('constructor', PERMISSIONS.ORGANIZATION_READ)).toBe(false);

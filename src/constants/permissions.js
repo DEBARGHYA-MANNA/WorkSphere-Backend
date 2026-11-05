@@ -21,7 +21,8 @@ const PERMISSIONS = Object.freeze({
   TASK_DELETE: 'task:delete',
   TASK_ASSIGN: 'task:assign',
   COMMENT_CREATE: 'comment:create',
-  COMMENT_DELETE: 'comment:delete'
+  COMMENT_DELETE: 'comment:delete',
+  ANALYTICS_READ: 'analytics:read'
 });
 
 const OWNER_PERMISSIONS = Object.freeze(Object.values(PERMISSIONS));
@@ -39,6 +40,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.PROJECT_READ,
     PERMISSIONS.PROJECT_UPDATE,
     PERMISSIONS.PROJECT_MANAGE_MEMBERS,
+    PERMISSIONS.ANALYTICS_READ,
     PERMISSIONS.TASK_CREATE,
     PERMISSIONS.TASK_READ,
     PERMISSIONS.TASK_UPDATE,

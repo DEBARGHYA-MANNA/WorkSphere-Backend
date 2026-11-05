@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const AppError = require('../utils/app-error');
 const asyncHandler = require('../utils/async-handler');
 const { verifyAccessToken } = require('../utils/auth-crypto');
@@ -22,7 +23,7 @@ const authenticate = asyncHandler(async (req, res, next) => {
 
   const [user, activeSession] = await Promise.all([
     User.findById(claims.sub).select('_id name email emailVerified status'),
-    RefreshToken.exists({ sessionId: claims.sid, revokedAt: null, expiresAt: { $gt: new Date() } })
+    RefreshToken.exists({ sessionId: claims.sid, revokedAt: null, expiresAt: mongoose.trusted({ $gt: new Date() }) })
   ]);
 
   if (!user || user.status !== 'active' || !user.emailVerified || !activeSession) {
