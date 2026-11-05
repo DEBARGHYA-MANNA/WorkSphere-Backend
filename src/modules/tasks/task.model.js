@@ -30,6 +30,9 @@ taskSchema.index({ organizationId: 1, projectId: 1, assigneeId: 1, status: 1 }, 
 taskSchema.index({ organizationId: 1, projectId: 1, parentTaskId: 1 }, { name: 'tasks_project_parent' });
 taskSchema.index({ organizationId: 1, projectId: 1, labels: 1 }, { name: 'tasks_project_labels' });
 taskSchema.index({ organizationId: 1, projectId: 1, dependencies: 1 }, { name: 'tasks_project_dependencies' });
+taskSchema.index({ organizationId: 1, createdAt: -1 }, { name: 'tasks_org_created' });
+taskSchema.index({ organizationId: 1, completedAt: -1 }, { name: 'tasks_org_completed' });
+taskSchema.index({ organizationId: 1, assigneeId: 1, status: 1 }, { name: 'tasks_org_workload' });
 
 taskSchema.pre('validate', function setPriorityRank() {
   this.priorityRank = { low: 1, medium: 2, high: 3, urgent: 4 }[this.priority] || 2;

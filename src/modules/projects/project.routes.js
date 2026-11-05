@@ -7,6 +7,7 @@ const controller = require('./project.controller');
 const validation = require('./project.validation');
 const taskRoutes = require('../tasks/task.routes');
 const activityRoutes = require('../activities/activity.routes');
+const analyticsRoutes = require('../analytics/analytics.routes');
 
 const router = express.Router({ mergeParams: true });
 
@@ -71,5 +72,6 @@ router.delete('/:projectId/members/:userId',
 );
 router.use('/:projectId/tasks', taskRoutes);
 router.use(activityRoutes);
+router.use(analyticsRoutes.projectRouter);
 
 module.exports = router;

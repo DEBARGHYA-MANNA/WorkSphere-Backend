@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Invitation = require('./invitation.model');
 const Organization = require('../organizations/organization.model');
 const OrganizationMember = require('../members/organization-member.model');
@@ -10,6 +11,7 @@ const withMongoTransaction = require('../../utils/mongo-transaction');
 const { organizationScopedFilter } = require('../../utils/tenant-access');
 const { paginationMetadata } = require('../../utils/pagination');
 const { canAssignRole, canManageMember } = require('../../constants/permissions');
+const activityService = require('../activities/activity.service');
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKEN_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -21,6 +23,7 @@ function createInvitationService({
   UserModel = User,
   crypto = authCrypto,
   mail = mailer,
+  ActivityService = activityService,
   runInTransaction = withMongoTransaction,
   clock = () => new Date()
 } = {}) {
@@ -36,7 +39,7 @@ function createInvitationService({
     const normalizedEmail = email.toLowerCase();
     const now = clock();
     const filter = organizationScopedFilter(organization._id, { email: normalizedEmail, status: 'pending' });
-    await InvitationModel.updateMany({ ...filter, expiresAt: { $lte: now } }, { $set: { status: 'expired' } });
+    await InvitationModel.updateMany({ ...filter, expiresAt: mongoose.trusted({ $lte: now }) }, { $set: { status: 'expired' } });
 
     const existingUser = await UserModel.findOne({ email: normalizedEmail });
     if (existingUser) {
@@ -61,7 +64,17 @@ function createInvitationService({
     });
 
     try {
-      await invitation.save();
+      await runInTransaction(async (session) => {
+        await invitation.save({ session });
+        await ActivityService.record({
+          organizationId: organization._id,
+          actorId: actorMembership.userId,
+          action: 'invitation_created',
+          targetType: 'invitation',
+          targetId: invitation._id,
+          metadata: { role: targetRole }
+        }, session);
+      });
     } catch (error) {
       if (error.code === 11000) throw new AppError('A pending invitation already exists for this email', 409, 'INVITATION_EXISTS');
       throw error;
@@ -81,7 +94,7 @@ function createInvitationService({
   }
 
   async function list(organizationId, { page, limit }) {
-    const filter = organizationScopedFilter(organizationId, { status: 'pending', expiresAt: { $gt: clock() } });
+    const filter = organizationScopedFilter(organizationId, { status: 'pending', expiresAt: mongoose.trusted({ $gt: clock() }) });
     const [invitations, total] = await Promise.all([
       InvitationModel.find(filter).select('email role invitedBy status expiresAt createdAt')
         .sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
@@ -99,9 +112,21 @@ function createInvitationService({
     if (!canManageMember(actorMembership.role, invitation.role)) {
       throw new AppError('You cannot revoke this invitation', 403, 'FORBIDDEN');
     }
-    return InvitationModel.findOneAndUpdate(scope, {
-      $set: { status: 'revoked', revokedAt: clock(), revokedBy: actorMembership.userId }
-    }, { new: true, runValidators: true });
+    return runInTransaction(async (session) => {
+      const revoked = await InvitationModel.findOneAndUpdate(scope, {
+        $set: { status: 'revoked', revokedAt: clock(), revokedBy: actorMembership.userId }
+      }, { new: true, runValidators: true, session });
+      if (!revoked) throw new AppError('Invitation is no longer pending', 409, 'INVITATION_NOT_PENDING');
+      await ActivityService.record({
+        organizationId,
+        actorId: actorMembership.userId,
+        action: 'invitation_revoked',
+        targetType: 'invitation',
+        targetId: revoked._id,
+        metadata: { role: revoked.role }
+      }, session);
+      return revoked;
+    });
   }
 
   async function accept({ token, user }) {
@@ -113,7 +138,7 @@ function createInvitationService({
 
     try {
       return await runInTransaction(async (session) => {
-        const invitationQuery = InvitationModel.findOne({ tokenHash, status: 'pending', expiresAt: { $gt: now } });
+        const invitationQuery = InvitationModel.findOne({ tokenHash, status: 'pending', expiresAt: mongoose.trusted({ $gt: now }) });
         const invitation = await (session ? invitationQuery.session(session) : invitationQuery);
         if (!invitation || invitation.email !== user.email.toLowerCase()) {
           throw new AppError('Invitation is invalid, expired, or addressed to another account', 400, 'INVALID_INVITATION');
@@ -126,7 +151,7 @@ function createInvitationService({
         const claimQuery = InvitationModel.findOneAndUpdate({
           _id: invitation._id,
           status: 'pending',
-          expiresAt: { $gt: now }
+          expiresAt: mongoose.trusted({ $gt: now })
         }, {
           $set: { status: 'accepted', acceptedAt: now, acceptedBy: user._id }
         }, { new: true, runValidators: true, session });
@@ -159,6 +184,22 @@ function createInvitationService({
           });
           await membership.save({ session });
         }
+        await ActivityService.record({
+          organizationId: organization._id,
+          actorId: user._id,
+          action: 'invitation_accepted',
+          targetType: 'invitation',
+          targetId: claimed._id,
+          metadata: { userId: user._id, role: invitation.role }
+        }, session);
+        await ActivityService.record({
+          organizationId: organization._id,
+          actorId: user._id,
+          action: 'member_joined',
+          targetType: 'organization_member',
+          targetId: membership._id,
+          metadata: { userId: user._id, role: invitation.role }
+        }, session);
         return { organization, membership };
       });
     } catch (error) {

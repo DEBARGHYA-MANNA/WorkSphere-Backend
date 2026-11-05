@@ -1,7 +1,9 @@
+const mongoose = require('mongoose');
 const OrganizationMember = require('./organization-member.model');
 const ProjectMember = require('../projects/project-member.model');
 const Task = require('../tasks/task.model');
 const Notification = require('../notifications/notification.model');
+const activityService = require('../activities/activity.service');
 const User = require('../users/user.model');
 const AppError = require('../../utils/app-error');
 const { organizationScopedFilter } = require('../../utils/tenant-access');
@@ -14,6 +16,7 @@ function createMemberService({
   ProjectMemberModel = ProjectMember,
   TaskModel = Task,
   NotificationModel = Notification,
+  ActivityService = activityService,
   UserModel = User,
   runInTransaction = withMongoTransaction,
   clock = () => new Date()
@@ -32,7 +35,7 @@ function createMemberService({
 
     if (!members.length) return { members: [], pagination: paginationMetadata(page, limit, total) };
     const userIds = members.map((member) => member.userId);
-    const users = await UserModel.find({ _id: { $in: userIds } }).select('name email avatarUrl status').lean();
+    const users = await UserModel.find({ _id: mongoose.trusted({ $in: userIds }) }).select('name email avatarUrl status').lean();
     const userById = new Map(users.map((user) => [String(user._id), user]));
     return {
       members: members.map((member) => ({ ...member, user: userById.get(String(member.userId)) || null })),
@@ -54,13 +57,23 @@ function createMemberService({
       throw new AppError('You cannot change your own organization role', 403, 'ROLE_ASSIGNMENT_FORBIDDEN');
     }
 
-    const updated = await MemberModel.findOneAndUpdate(
-      organizationScopedFilter(organizationId, { _id: memberId, status: 'active', role: target.role }),
-      { $set: { role: newRole } },
-      { new: true, runValidators: true }
-    );
-    if (!updated) throw new AppError('Member role changed; reload and try again', 409, 'MEMBER_ROLE_CHANGED');
-    return updated;
+    return runInTransaction(async (session) => {
+      const updated = await MemberModel.findOneAndUpdate(
+        organizationScopedFilter(organizationId, { _id: memberId, status: 'active', role: target.role }),
+        { $set: { role: newRole } },
+        { new: true, runValidators: true, session }
+      );
+      if (!updated) throw new AppError('Member role changed; reload and try again', 409, 'MEMBER_ROLE_CHANGED');
+      await ActivityService.record({
+        organizationId,
+        actorId: actorMembership.userId,
+        action: 'member_role_changed',
+        targetType: 'organization_member',
+        targetId: updated._id,
+        metadata: { userId: updated.userId, previousRole: target.role, role: newRole }
+      }, session);
+      return updated;
+    });
   }
 
   async function remove(organizationId, memberId, actorMembership) {
@@ -93,6 +106,14 @@ function createMemberService({
         organizationScopedFilter(organizationId, { recipientId: target.userId }),
         { session }
       );
+      await ActivityService.record({
+        organizationId,
+        actorId: actorMembership.userId,
+        action: 'member_removed',
+        targetType: 'organization_member',
+        targetId: removed._id,
+        metadata: { userId: target.userId, role: target.role }
+      }, session);
       return removed;
     });
   }

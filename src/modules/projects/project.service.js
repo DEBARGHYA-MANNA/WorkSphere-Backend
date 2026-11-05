@@ -1,8 +1,10 @@
+const mongoose = require('mongoose');
 const Project = require('./project.model');
 const ProjectMember = require('./project-member.model');
 const Task = require('../tasks/task.model');
 const Comment = require('../comments/comment.model');
 const Activity = require('../activities/activity.model');
+const activityService = require('../activities/activity.service');
 const Notification = require('../notifications/notification.model');
 const OrganizationMember = require('../members/organization-member.model');
 const User = require('../users/user.model');
@@ -21,6 +23,7 @@ function createProjectService({
   TaskModel = Task,
   CommentModel = Comment,
   ActivityModel = Activity,
+  ActivityService = activityService,
   NotificationModel = Notification,
   OrganizationMemberModel = OrganizationMember,
   UserModel = User,
@@ -45,6 +48,15 @@ function createProjectService({
         addedBy: userId
       });
       await ownerMembership.save({ session });
+      await ActivityService.record({
+        organizationId,
+        projectId: project._id,
+        actorId: userId,
+        action: 'project_created',
+        targetType: 'project',
+        targetId: project._id,
+        metadata: { name: project.name }
+      }, session);
       return { project, membership: ownerMembership };
     });
   }
@@ -52,7 +64,7 @@ function createProjectService({
   async function list(organizationId, organizationRole, userId, options) {
     const { page, limit, q, status, visibility, archived, dueAfter, dueBefore, sort, order } = options;
     const filter = organizationScopedFilter(organizationId);
-    filter.archivedAt = archived ? { $ne: null } : null;
+    filter.archivedAt = archived ? mongoose.trusted({ $ne: null }) : null;
     if (status) filter.status = status;
     if (visibility) filter.visibility = visibility;
     if (q) filter.name = new RegExp(escapeRegex(q), 'i');
@@ -60,6 +72,7 @@ function createProjectService({
       filter.dueDate = {};
       if (dueAfter) filter.dueDate.$gte = dueAfter;
       if (dueBefore) filter.dueDate.$lte = dueBefore;
+      filter.dueDate = mongoose.trusted(filter.dueDate);
     }
 
     if (!['Owner', 'Admin', 'Manager'].includes(organizationRole)) {
@@ -69,7 +82,7 @@ function createProjectService({
       })).select('projectId').lean();
       filter.$or = [
         { visibility: 'organization' },
-        { _id: { $in: memberships.map((membership) => membership.projectId) } }
+        { _id: mongoose.trusted({ $in: memberships.map((membership) => membership.projectId) }) }
       ];
     }
 
@@ -89,15 +102,26 @@ function createProjectService({
     if (startDate && dueDate && new Date(startDate) > new Date(dueDate)) {
       throw new AppError('Project start date must be on or before its due date', 400, 'INVALID_PROJECT_DATE_RANGE');
     }
-    for (const field of ['name', 'description', 'status', 'visibility', 'startDate', 'dueDate']) {
-      if (Object.hasOwn(changes, field)) project[field] = changes[field];
-    }
-    project.updatedBy = userId;
-    await project.save();
-    return project;
+    return runInTransaction(async (session) => {
+      for (const field of ['name', 'description', 'status', 'visibility', 'startDate', 'dueDate']) {
+        if (Object.hasOwn(changes, field)) project[field] = changes[field];
+      }
+      project.updatedBy = userId;
+      await project.save({ session });
+      await ActivityService.record({
+        organizationId: project.organizationId,
+        projectId: project._id,
+        actorId: userId,
+        action: 'project_updated',
+        targetType: 'project',
+        targetId: project._id,
+        metadata: { changedFields: Object.keys(changes) }
+      }, session);
+      return project;
+    });
   }
 
-  async function remove(project, organizationId) {
+  async function remove(project, organizationId, actorId) {
     await runInTransaction(async (session) => {
       const scope = organizationScopedFilter(organizationId, { projectId: project._id });
       await TaskModel.deleteMany(scope, { session });
@@ -106,32 +130,56 @@ function createProjectService({
       await NotificationModel.deleteMany(scope, { session });
       await ProjectMemberModel.deleteMany(scope, { session });
       await ProjectModel.deleteOne(organizationScopedFilter(organizationId, { _id: project._id }), { session });
+      await ActivityService.record({
+        organizationId,
+        actorId,
+        action: 'project_deleted',
+        targetType: 'project',
+        targetId: project._id,
+        metadata: { projectId: project._id, name: project.name }
+      }, session);
     });
   }
 
   async function archive(projectId, organizationId, userId) {
     const now = clock();
-    const archived = await ProjectModel.findOneAndUpdate(
-      organizationScopedFilter(organizationId, { _id: projectId, archivedAt: null }),
-      { $set: { archivedAt: now, archivedBy: userId, updatedBy: userId } },
-      { new: true, runValidators: true }
-    );
-    if (archived) return archived;
-    const existing = await ProjectModel.findOne(organizationScopedFilter(organizationId, { _id: projectId }));
-    if (!existing) throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
-    throw new AppError('Project is already archived', 409, 'PROJECT_ALREADY_ARCHIVED');
+    return runInTransaction(async (session) => {
+      const archived = await ProjectModel.findOneAndUpdate(
+        organizationScopedFilter(organizationId, { _id: projectId, archivedAt: null }),
+        { $set: { archivedAt: now, archivedBy: userId, updatedBy: userId } },
+        { new: true, runValidators: true, session }
+      );
+      if (archived) {
+        await ActivityService.record({
+          organizationId, projectId, actorId: userId, action: 'project_archived',
+          targetType: 'project', targetId: projectId
+        }, session);
+        return archived;
+      }
+      const existing = await ProjectModel.findOne(organizationScopedFilter(organizationId, { _id: projectId }));
+      if (!existing) throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
+      throw new AppError('Project is already archived', 409, 'PROJECT_ALREADY_ARCHIVED');
+    });
   }
 
   async function restore(projectId, organizationId, userId) {
-    const restored = await ProjectModel.findOneAndUpdate(
-      organizationScopedFilter(organizationId, { _id: projectId, archivedAt: { $ne: null } }),
-      { $set: { archivedAt: null, archivedBy: null, updatedBy: userId } },
-      { new: true, runValidators: true }
-    );
-    if (restored) return restored;
-    const existing = await ProjectModel.findOne(organizationScopedFilter(organizationId, { _id: projectId }));
-    if (!existing) throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
-    throw new AppError('Project is not archived', 409, 'PROJECT_NOT_ARCHIVED');
+    return runInTransaction(async (session) => {
+      const restored = await ProjectModel.findOneAndUpdate(
+        organizationScopedFilter(organizationId, { _id: projectId, archivedAt: mongoose.trusted({ $ne: null }) }),
+        { $set: { archivedAt: null, archivedBy: null, updatedBy: userId } },
+        { new: true, runValidators: true, session }
+      );
+      if (restored) {
+        await ActivityService.record({
+          organizationId, projectId, actorId: userId, action: 'project_restored',
+          targetType: 'project', targetId: projectId
+        }, session);
+        return restored;
+      }
+      const existing = await ProjectModel.findOne(organizationScopedFilter(organizationId, { _id: projectId }));
+      if (!existing) throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
+      throw new AppError('Project is not archived', 409, 'PROJECT_NOT_ARCHIVED');
+    });
   }
 
   async function listMembers(organizationId, projectId, { page, limit }) {
@@ -142,7 +190,7 @@ function createProjectService({
       ProjectMemberModel.countDocuments(filter)
     ]);
     if (!members.length) return { members: [], pagination: paginationMetadata(page, limit, total) };
-    const users = await UserModel.find({ _id: { $in: members.map((member) => member.userId) } })
+    const users = await UserModel.find({ _id: mongoose.trusted({ $in: members.map((member) => member.userId) }) })
       .select('name email avatarUrl status').lean();
     const userById = new Map(users.map((user) => [String(user._id), user]));
     return {
@@ -159,37 +207,47 @@ function createProjectService({
     if (!organizationMembership) throw new AppError('User must be an active organization member', 404, 'ORGANIZATION_MEMBER_NOT_FOUND');
 
     const filter = organizationScopedFilter(organizationId, { projectId, userId });
-    const existing = await ProjectMemberModel.findOne(filter);
-    if (existing?.status === 'active') throw new AppError('User is already a project member', 409, 'ALREADY_A_PROJECT_MEMBER');
-    if (existing) {
-      existing.role = role;
-      existing.status = 'active';
-      existing.joinedAt = clock();
-      existing.removedAt = null;
-      existing.removedBy = null;
-      existing.addedBy = actorId;
-      await existing.save();
-      return existing;
-    }
+    return runInTransaction(async (session) => {
+      const existing = await ProjectMemberModel.findOne(filter);
+      if (existing?.status === 'active') throw new AppError('User is already a project member', 409, 'ALREADY_A_PROJECT_MEMBER');
+      if (existing) {
+        existing.role = role;
+        existing.status = 'active';
+        existing.joinedAt = clock();
+        existing.removedAt = null;
+        existing.removedBy = null;
+        existing.addedBy = actorId;
+        await existing.save({ session });
+        await ActivityService.record({
+          organizationId, projectId, actorId, action: 'project_member_added',
+          targetType: 'project_member', targetId: existing._id, metadata: { userId, role, reactivated: true }
+        }, session);
+        return existing;
+      }
 
-    const member = new ProjectMemberModel({
-      organizationId,
-      projectId,
-      userId,
-      role,
-      status: 'active',
-      addedBy: actorId
+      const member = new ProjectMemberModel({
+        organizationId,
+        projectId,
+        userId,
+        role,
+        status: 'active',
+        addedBy: actorId
+      });
+      try {
+        await member.save({ session });
+      } catch (error) {
+        if (error.code === 11000) throw new AppError('User is already a project member', 409, 'ALREADY_A_PROJECT_MEMBER');
+        throw error;
+      }
+      await ActivityService.record({
+        organizationId, projectId, actorId, action: 'project_member_added',
+        targetType: 'project_member', targetId: member._id, metadata: { userId, role }
+      }, session);
+      return member;
     });
-    try {
-      await member.save();
-    } catch (error) {
-      if (error.code === 11000) throw new AppError('User is already a project member', 409, 'ALREADY_A_PROJECT_MEMBER');
-      throw error;
-    }
-    return member;
   }
 
-  async function updateMemberRole(organizationId, projectId, userId, role) {
+  async function updateMemberRole(organizationId, projectId, userId, role, actorId) {
     const member = await ProjectMemberModel.findOne(organizationScopedFilter(organizationId, {
       projectId,
       userId,
@@ -197,9 +255,20 @@ function createProjectService({
     }));
     if (!member) throw new AppError('Project member not found', 404, 'PROJECT_MEMBER_NOT_FOUND');
     if (member.role === 'Owner') throw new AppError('Project owner role cannot be changed', 403, 'PROJECT_OWNER_PROTECTED');
-    member.role = role;
-    await member.save();
-    return member;
+    const previousRole = member.role;
+    return runInTransaction(async (session) => {
+      const updated = await ProjectMemberModel.findOneAndUpdate(
+        organizationScopedFilter(organizationId, { projectId, userId, status: 'active', role: previousRole }),
+        { $set: { role } },
+        { new: true, runValidators: true, session }
+      );
+      if (!updated) throw new AppError('Project member changed; reload and try again', 409, 'PROJECT_MEMBER_CHANGED');
+      await ActivityService.record({
+        organizationId, projectId, actorId, action: 'project_member_role_changed',
+        targetType: 'project_member', targetId: updated._id, metadata: { userId, previousRole, role }
+      }, session);
+      return updated;
+    });
   }
 
   async function removeMember(organizationId, projectId, userId, actorId) {
@@ -222,6 +291,10 @@ function createProjectService({
         { session }
       );
       await NotificationModel.deleteMany(organizationScopedFilter(organizationId, { projectId, recipientId: userId }), { session });
+      await ActivityService.record({
+        organizationId, projectId, actorId, action: 'project_member_removed',
+        targetType: 'project_member', targetId: removed._id, metadata: { userId, role: member.role }
+      }, session);
       return removed;
     });
   }

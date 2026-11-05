@@ -25,6 +25,9 @@ async function startServer() {
   server = app.listen(env.port, '0.0.0.0', () => {
     logger.info(`WorkSphere API listening on port ${env.port}`);
   });
+  server.requestTimeout = env.requestTimeoutMs;
+  server.headersTimeout = Math.min(66000, env.requestTimeoutMs);
+  server.keepAliveTimeout = 65000;
   return server;
 }
 
@@ -35,13 +38,13 @@ async function shutdown(signal) {
   const forceExit = setTimeout(() => {
     logger.error('Graceful shutdown timed out');
     process.exit(1);
-  }, 10000);
+  }, env.shutdownTimeoutMs);
   forceExit.unref();
 
   try {
-    if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    stopDeadlineReminderScheduler(deadlineReminderTimer);
+    await stopDeadlineReminderScheduler(deadlineReminderTimer);
     deadlineReminderTimer = null;
+    if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await disconnectDatabase();
     process.exitCode = 0;
   } catch (error) {

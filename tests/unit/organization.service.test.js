@@ -83,15 +83,17 @@ function createInvitationModels({ existingUser = null } = {}) {
   const UserModel = { findOne: jest.fn().mockImplementation(() => query(existingUser)) };
   const OrganizationModel = { findOne: jest.fn().mockImplementation(() => query(organization)) };
   const mail = { sendOrganizationInvitationEmail: jest.fn().mockResolvedValue(undefined) };
+  const ActivityService = { record: jest.fn().mockResolvedValue({}) };
   const service = createInvitationService({
     InvitationModel: MemoryInvitation,
     OrganizationModel,
     MemberModel: MemoryMember,
     UserModel,
+    ActivityService,
     runInTransaction: transaction,
     mail
   });
-  return { service, invitations, members, organization, mail, UserModel, MemberModel: MemoryMember };
+  return { service, invitations, members, organization, mail, UserModel, MemberModel: MemoryMember, ActivityService };
 }
 
 describe('Organization service', () => {
@@ -107,7 +109,8 @@ describe('Organization service', () => {
       async save(options) { memberships.push(this); this.session = options.session; }
     }
     const runInTransaction = jest.fn(transaction);
-    const service = createOrganizationService({ OrganizationModel, MemberModel, runInTransaction });
+    const ActivityService = { record: jest.fn().mockResolvedValue({}) };
+    const service = createOrganizationService({ OrganizationModel, MemberModel, ActivityService, runInTransaction });
 
     const result = await service.create(OWNER_ID, { name: 'Café / Product Team', description: 'Shared work' });
     expect(result.organization.slug).toBe('cafe-product-team');
@@ -116,12 +119,14 @@ describe('Organization service', () => {
     expect(memberships).toHaveLength(1);
     expect(organizations[0].session).toBe(memberships[0].session);
     expect(runInTransaction).toHaveBeenCalledTimes(1);
+    expect(ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'organization_created', targetId: ORG_ID }), { id: 'test-session' });
   });
 
   test('updates only allowed organization settings and requires owner for deletion', async () => {
-    const service = createOrganizationService({ runInTransaction: transaction });
-    const org = { name: 'Before', description: '', settings: { allowMemberInvites: true, defaultMemberRole: 'Member' }, save: jest.fn() };
-    await service.update(org, { name: 'After', settings: { defaultMemberRole: 'Viewer' } });
+    const ActivityService = { record: jest.fn().mockResolvedValue({}) };
+    const service = createOrganizationService({ ActivityService, runInTransaction: transaction });
+    const org = { _id: ORG_ID, name: 'Before', description: '', settings: { allowMemberInvites: true, defaultMemberRole: 'Member' }, save: jest.fn() };
+    await service.update(org, { name: 'After', settings: { defaultMemberRole: 'Viewer' } }, OWNER_ID);
     expect(org.name).toBe('After');
     expect(org.settings).toEqual({ allowMemberInvites: true, defaultMemberRole: 'Viewer' });
     await expect(service.remove(org, { role: 'Admin' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -163,11 +168,13 @@ describe('Organization member service', () => {
       findOne: jest.fn().mockResolvedValue(target),
       findOneAndUpdate: jest.fn().mockResolvedValue({ ...target, role: 'Viewer' })
     };
-    const service = createMemberService({ MemberModel });
+    const ActivityService = { record: jest.fn().mockResolvedValue({}) };
+    const service = createMemberService({ MemberModel, ActivityService, runInTransaction: transaction });
 
     const changed = await service.updateRole(ORG_ID, MEMBER_ID, 'Viewer', { role: 'Owner', userId: OWNER_ID });
     expect(changed.role).toBe('Viewer');
     expect(MemberModel.findOneAndUpdate.mock.calls[0][0]).toMatchObject({ organizationId: ORG_ID, _id: MEMBER_ID, status: 'active', role: 'Member' });
+    expect(ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'member_role_changed', metadata: expect.objectContaining({ previousRole: 'Member', role: 'Viewer' }) }), { id: 'test-session' });
 
     await expect(service.updateRole(ORG_ID, MEMBER_ID, 'Admin', { role: 'Manager', userId: OWNER_ID }))
       .rejects.toMatchObject({ code: 'ROLE_ASSIGNMENT_FORBIDDEN' });
@@ -185,7 +192,8 @@ describe('Organization member service', () => {
     const TaskModel = { updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }) };
     const NotificationModel = { deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) };
     const runInTransaction = jest.fn(transaction);
-    const service = createMemberService({ MemberModel, ProjectMemberModel, TaskModel, NotificationModel, runInTransaction });
+    const ActivityService = { record: jest.fn().mockResolvedValue({}) };
+    const service = createMemberService({ MemberModel, ProjectMemberModel, TaskModel, NotificationModel, ActivityService, runInTransaction });
 
     await service.remove(ORG_ID, MEMBER_ID, { role: 'Owner', userId: OWNER_ID });
     expect(runInTransaction).toHaveBeenCalledTimes(1);
@@ -204,6 +212,7 @@ describe('Organization member service', () => {
       { organizationId: ORG_ID, recipientId: target.userId },
       { session: { id: 'test-session' } }
     );
+    expect(ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'member_removed', targetId: MEMBER_ID }), { id: 'test-session' });
   });
 });
 
@@ -219,12 +228,15 @@ describe('Organization invitations', () => {
     expect(invitation.tokenHash).toBe(authCrypto.hashToken(token));
     expect(invitation.tokenHash).not.toBe(token);
     expect(invitation.role).toBe('Member');
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'invitation_created' }), { id: 'test-session' });
 
     const user = { _id: MEMBER_ID, email: 'new.member@example.com', emailVerified: true, status: 'active' };
     const result = await models.service.accept({ token, user });
     expect(result.organization._id).toBe(ORG_ID);
     expect(result.membership).toMatchObject({ userId: MEMBER_ID, role: 'Member', status: 'active' });
     expect(models.invitations[0].status).toBe('accepted');
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'invitation_accepted' }), { id: 'test-session' });
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'member_joined' }), { id: 'test-session' });
     await expect(models.service.accept({ token, user })).rejects.toMatchObject({ code: 'INVALID_INVITATION' });
   });
 

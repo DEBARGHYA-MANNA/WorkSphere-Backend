@@ -89,10 +89,11 @@ function createMemoryProjectModels() {
   const TaskModel = { deleteMany: jest.fn(), updateMany: jest.fn() };
   const CommentModel = { deleteMany: jest.fn() };
   const ActivityModel = { deleteMany: jest.fn() };
+  const ActivityService = { record: jest.fn().mockResolvedValue({}) };
   const NotificationModel = { deleteMany: jest.fn() };
   return {
     projects, projectMembers, ProjectModel, ProjectMemberModel, OrganizationMemberModel, UserModel,
-    TaskModel, CommentModel, ActivityModel, NotificationModel
+    TaskModel, CommentModel, ActivityModel, ActivityService, NotificationModel
   };
 }
 
@@ -107,6 +108,7 @@ describe('Project service', () => {
     expect(result.project).toMatchObject({ organizationId: ORG_ID, name: 'Launch', createdBy: OWNER_ID });
     expect(result.membership).toMatchObject({ organizationId: ORG_ID, projectId: PROJECT_ID, userId: OWNER_ID, role: 'Owner', status: 'active' });
     expect(result.project.session).toBe(result.membership.session);
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'project_created', targetId: PROJECT_ID }), { id: 'test-session' });
   });
 
   test('lists tenant projects with archived, search, and private-membership filters', async () => {
@@ -127,15 +129,17 @@ describe('Project service', () => {
     expect(filter.name.test('plan-anything')).toBe(false);
     expect(filter.$or).toEqual([
       { visibility: 'organization' },
-      { _id: { $in: [] } }
+      { _id: expect.objectContaining({ $in: [] }) }
     ]);
   });
 
-  test('updates only allowed project fields, enforces date order, and blocks archived updates', async () => {
-    const service = createProjectService();
-    const project = { name: 'Before', startDate: new Date('2026-01-01'), dueDate: new Date('2026-02-01'), save: jest.fn() };
+  test('updates only allowed project fields, records activity, enforces date order, and blocks archived updates', async () => {
+    const ActivityService = { record: jest.fn().mockResolvedValue({}) };
+    const service = createProjectService({ ActivityService, runInTransaction: transaction });
+    const project = { _id: PROJECT_ID, organizationId: ORG_ID, name: 'Before', startDate: new Date('2026-01-01'), dueDate: new Date('2026-02-01'), save: jest.fn() };
     await service.update(project, OWNER_ID, { name: 'After' });
     expect(project).toMatchObject({ name: 'After', updatedBy: OWNER_ID });
+    expect(ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'project_updated', metadata: { changedFields: ['name'] } }), { id: 'test-session' });
     await expect(service.update(project, OWNER_ID, { dueDate: new Date('2025-12-01') }))
       .rejects.toMatchObject({ code: 'INVALID_PROJECT_DATE_RANGE' });
     await expect(service.update({ ...project, archivedAt: new Date() }, OWNER_ID, { name: 'No' }))
@@ -146,7 +150,7 @@ describe('Project service', () => {
     const models = createMemoryProjectModels();
     const project = new models.ProjectModel({ _id: PROJECT_ID, organizationId: ORG_ID, name: 'Archive me' });
     models.projects.push(project);
-    const service = createProjectService({ ...models, clock: () => new Date('2026-11-05T00:00:00.000Z') });
+    const service = createProjectService({ ...models, runInTransaction: transaction, clock: () => new Date('2026-11-05T00:00:00.000Z') });
 
     const archived = await service.archive(PROJECT_ID, ORG_ID, OWNER_ID);
     expect(archived.archivedAt).toEqual(new Date('2026-11-05T00:00:00.000Z'));
@@ -154,6 +158,8 @@ describe('Project service', () => {
     const restored = await service.restore(PROJECT_ID, ORG_ID, OWNER_ID);
     expect(restored.archivedAt).toBeNull();
     expect(restored.archivedBy).toBeNull();
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'project_archived' }), { id: 'test-session' });
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'project_restored' }), { id: 'test-session' });
   });
 
   test('deletes project and membership data in one tenant-scoped transaction', async () => {
@@ -166,7 +172,7 @@ describe('Project service', () => {
     const projectDelete = jest.spyOn(models.ProjectModel, 'deleteOne');
     const service = createProjectService({ ...models, TaskModel: taskDelete, runInTransaction });
 
-    await service.remove(project, ORG_ID);
+    await service.remove(project, ORG_ID, OWNER_ID);
     expect(runInTransaction).toHaveBeenCalledTimes(1);
     expect(taskDelete.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(memberDelete).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
@@ -174,6 +180,9 @@ describe('Project service', () => {
     expect(models.ActivityModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(models.NotificationModel.deleteMany).toHaveBeenCalledWith({ organizationId: ORG_ID, projectId: PROJECT_ID }, { session: { id: 'test-session' } });
     expect(projectDelete).toHaveBeenCalledWith({ organizationId: ORG_ID, _id: PROJECT_ID }, { session: { id: 'test-session' } });
+    expect(models.ActivityService.record).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID, actorId: OWNER_ID, action: 'project_deleted', targetId: PROJECT_ID
+    }), { id: 'test-session' });
   });
 
   test('adds only active organization members, changes project roles, and protects Owner membership', async () => {
@@ -184,7 +193,7 @@ describe('Project service', () => {
     await expect(service.addMember(ORG_ID, PROJECT_ID, OWNER_ID, MEMBER_ID, 'Editor'))
       .rejects.toMatchObject({ code: 'ALREADY_A_PROJECT_MEMBER' });
 
-    await service.updateMemberRole(ORG_ID, PROJECT_ID, MEMBER_ID, 'Editor');
+    await service.updateMemberRole(ORG_ID, PROJECT_ID, MEMBER_ID, 'Editor', OWNER_ID);
     expect(member.role).toBe('Editor');
     member.role = 'Owner';
     await expect(service.removeMember(ORG_ID, PROJECT_ID, MEMBER_ID, OWNER_ID))

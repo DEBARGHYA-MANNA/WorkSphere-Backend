@@ -47,16 +47,20 @@ describe('Deadline reminder scheduler', () => {
     }));
   });
 
-  test('scheduler can be stopped without queue infrastructure', () => {
+  test('scheduler avoids overlapping scans and drains its active scan when stopped', async () => {
     jest.useFakeTimers();
-    const runner = jest.fn().mockResolvedValue({ checked: 0, created: 0 });
+    let finishRun;
+    const runner = jest.fn().mockImplementation(() => new Promise((resolve) => { finishRun = resolve; }));
     const timer = startDeadlineReminderScheduler({ intervalMs: 1000, runner });
+    await Promise.resolve();
     expect(runner).toHaveBeenCalledTimes(1);
-    jest.advanceTimersByTime(1000);
-    expect(runner).toHaveBeenCalledTimes(2);
-    stopDeadlineReminderScheduler(timer);
     jest.advanceTimersByTime(3000);
-    expect(runner).toHaveBeenCalledTimes(2);
+    expect(runner).toHaveBeenCalledTimes(1);
+    const stopped = stopDeadlineReminderScheduler(timer);
+    finishRun({ checked: 0, created: 0 });
+    await stopped;
+    jest.advanceTimersByTime(3000);
+    expect(runner).toHaveBeenCalledTimes(1);
     jest.useRealTimers();
   });
 });

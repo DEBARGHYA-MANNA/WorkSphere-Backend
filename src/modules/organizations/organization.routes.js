@@ -11,6 +11,8 @@ const { organizationRouter: invitationRoutes } = require('../invitations/invitat
 const projectRoutes = require('../projects/project.routes');
 const myTaskRoutes = require('../tasks/my-task.routes');
 const notificationRoutes = require('../notifications/notification.routes');
+const activityRoutes = require('../activities/activity.routes');
+const analyticsRoutes = require('../analytics/analytics.routes');
 
 const router = express.Router();
 router.use(authenticate);
@@ -26,6 +28,8 @@ router.patch('/:organizationId',
   controller.update
 );
 router.delete('/:organizationId', authorizeOrganizationPermission(PERMISSIONS.ORGANIZATION_DELETE), controller.remove);
+router.use('/:organizationId/activity', authorizeOrganizationPermission(PERMISSIONS.ORGANIZATION_READ), activityRoutes.organizationRouter);
+router.use('/:organizationId/analytics', authorizeOrganizationPermission(PERMISSIONS.ANALYTICS_READ), analyticsRoutes.organizationRouter);
 router.use('/:organizationId/members', memberRoutes);
 router.use('/:organizationId/invitations', invitationRoutes);
 router.use('/:organizationId/projects', projectRoutes);

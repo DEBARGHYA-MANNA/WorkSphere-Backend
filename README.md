@@ -1,11 +1,11 @@
 # WorkSphere Backend
 
-WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–9: Foundation, Authentication, User Management, Organizations/Multi-Tenancy, RBAC, Project Management, Task Management, Comments/Collaboration, and Notifications**.
+WorkSphere is a multi-tenant project management SaaS backend built with Node.js, Express, MongoDB, and Mongoose. This repository is being delivered incrementally; the current implementation includes **Phases 1–13: Foundation, Authentication, User Management, Organizations/Multi-Tenancy, RBAC, Project Management, Task Management, Comments/Collaboration, Notifications, Activity Logs, Analytics, Security Hardening, and Production Readiness**.
 
 ## Requirements
 
 - Node.js 20 or later
-- MongoDB running locally or a managed MongoDB URI
+- MongoDB 5.0+ running as a local replica set or a managed replica-set/sharded-cluster URI
 
 ## Setup
 
@@ -36,18 +36,20 @@ See `.env.example` for the supported environment variables. `CORS_ORIGIN` accept
 
 ```bash
 npm test
+npm run test:coverage
 npm run lint
+npm audit --audit-level=high
 ```
 
-The initial integration tests exercise the HTTP foundation and do not require a live database. Later database integration tests should use an isolated test database and must never target development or production data.
+The unit and HTTP integration suites use isolated model fakes and do not require a live database. Any future live-database integration tests must use an isolated test database and must never target development or production data. CI runs tests and coverage on Node.js 20 and 22, lint, application/OpenAPI startup validation, and an npm dependency audit.
 
 ## MongoDB transactions
 
-Organization and project creation/deletion, task creation/update/status/assignment/deletion, comment create/update/delete with activity/mention notifications, organization-member removal, project-member removal, and invitation acceptance use multi-document transactions. These operations require MongoDB to run as a replica set or sharded cluster. A local standalone `mongod` is sufficient for health endpoints but not these operations. For local transaction development, configure MongoDB as a single-node replica set and connect using a replica-set URI, for example `mongodb://127.0.0.1:27017/worksphere?replicaSet=rs0`.
+Organization creation/update/deletion, project creation/update/archive/restore/deletion and project membership changes, task creation/update/status/assignment/deletion, comment create/update/delete with activity/mention notifications, organization-member role/removal changes, and invitation creation/revocation/acceptance use multi-document transactions. These operations require MongoDB 5.0 or later running as a replica set or sharded cluster; analytics uses `$dateTrunc` for UTC productivity buckets. A local standalone `mongod` is sufficient for health endpoints but not these operations. For local transaction development, configure MongoDB as a single-node replica set and connect using a replica-set URI, for example `mongodb://127.0.0.1:27017/worksphere?replicaSet=rs0`.
 
 ## Current scope
 
-The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, project/task management, comments, activity history, and notifications are implemented in phases. Analytics remains future work.
+The foundation, authentication, self-service user management, organization/member/invitation APIs, centralized RBAC, project/task management, comments, audit activity history, notifications, organization/project analytics, and production-oriented configuration are implemented. See [Deployment](docs/deployment.md) for production setup and operational guidance.
 
 ## Authentication (Phase 2)
 
@@ -124,3 +126,21 @@ Comments are nested under `/api/v1/organizations/:organizationId/projects/:proje
 ## Notifications (Phase 9)
 
 Notifications are private to the authenticated recipient and organization-scoped: `GET /api/v1/organizations/:organizationId/notifications` provides category filtering, unread-only filtering, and pagination; `GET /unread-count` returns the unread count; `PATCH /:notificationId/read` and `PATCH /read-all` mark notifications as read. Notifications are generated for task assignment and comment mentions. A small native Node.js interval scan creates idempotent due-soon and overdue task reminders; it uses MongoDB unique dedupe keys and does not require Redis or BullMQ.
+
+## Activity logs (Phase 10)
+
+The immutable activity model records organization and project lifecycle events, task changes, comments, invitation acceptance/revocation, membership changes, and organization/project role changes. Activities are written in the same MongoDB transaction as the related mutation when supported. `GET /api/v1/organizations/:organizationId/activity` retrieves tenant-scoped activity with pagination, action/actor/resource filters, and ISO date bounds; `GET /api/v1/organizations/:organizationId/projects/:projectId/activity` returns the project-scoped feed. Activity metadata stores changed field names and role identifiers, not credentials or request bodies.
+
+## Analytics (Phase 11)
+
+- `GET /api/v1/organizations/:organizationId/analytics` returns active project/member counts, task totals and completion rate, overdue tasks, status/priority distributions, per-project totals, assigned-member workload, unassigned task counts, and completion trends. Organization analytics are limited to Owner, Admin, and Manager roles.
+- `GET /api/v1/organizations/:organizationId/projects/:projectId/analytics` returns equivalent task and productivity metrics for a project visible to the caller.
+- Both endpoints accept optional ISO `from`/`to` date-time bounds and a `granularity` of `day`, `week`, or `month`. Operational task statistics use task creation time for the selected window; productivity trends use completion time. Trends are bucketed in UTC.
+
+Aggregation results are computed server-side with tenant/project-scoped MongoDB pipelines; clients cannot submit filters or aggregation operators. Analytics uses MongoDB 5.0+ `$dateTrunc`.
+
+## Testing, security, and production readiness (Phases 12–13)
+
+CI runs lint, unit and HTTP integration tests with coverage on Node.js 20 and 22, validates application/OpenAPI startup, and audits dependencies. Security controls include strict Joi schemas, unsafe-key rejection, server-side RBAC, organization-scoped aggregation, hashed one-time/refresh tokens, rate limiting, and production secret/CORS validation. Dependency and database index reviews are part of the release checklist.
+
+The service emits structured JSON logs with request IDs, provides separate liveness and database-readiness health checks, uses configurable MongoDB connection pools/timeouts, and performs signal-driven graceful shutdown. No third-party monitoring agent is enabled by default; deployers can route structured application logs and health probes into their existing monitoring stack. See [docs/deployment.md](docs/deployment.md) for production configuration, index provisioning, deployment, and operations.

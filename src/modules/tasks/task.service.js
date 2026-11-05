@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Task = require('./task.model');
 const Comment = require('../comments/comment.model');
 const Notification = require('../notifications/notification.model');
@@ -27,6 +28,7 @@ function buildFilter(organizationId, projectId, options = {}) {
     filter.dueDate = {};
     if (options.dueAfter) filter.dueDate.$gte = options.dueAfter;
     if (options.dueBefore) filter.dueDate.$lte = options.dueBefore;
+    filter.dueDate = mongoose.trusted(filter.dueDate);
   }
   if (options.q) {
     const expression = new RegExp(escapeRegex(options.q), 'i');
@@ -194,7 +196,7 @@ function createTaskService({
     const filter = buildFilter(organizationId, undefined, options);
     delete filter.projectId;
     filter.assigneeId = userId;
-    filter.projectId = { $in: projectIds };
+    filter.projectId = mongoose.trusted({ $in: projectIds });
     const { page, limit, sort, order } = options;
     const direction = order === 'asc' ? 1 : -1;
     const sortField = sort === 'priority' ? 'priorityRank' : sort;

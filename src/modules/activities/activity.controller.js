@@ -12,4 +12,15 @@ const list = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { list };
+const listOrganization = asyncHandler(async (req, res) => {
+  const result = await activityService.listOrganization(req.organization._id, req.validated.query);
+  res.status(200).json({
+    success: true,
+    message: 'Organization activity history retrieved successfully',
+    data: result.activities,
+    pagination: result.pagination,
+    requestId: req.id
+  });
+});
+
+module.exports = { list, listOrganization };

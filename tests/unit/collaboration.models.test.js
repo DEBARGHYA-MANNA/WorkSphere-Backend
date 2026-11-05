@@ -21,6 +21,12 @@ describe('Collaboration and notification models', () => {
       action: 'comment_created', targetType: 'comment', targetId: 'eeeeeeeeeeeeeeeeeeeeeeee'
     });
     await expect(activity.validate()).resolves.toBeUndefined();
+    const membershipActivity = new Activity({
+      organizationId: 'aaaaaaaaaaaaaaaaaaaaaaaa', actorId: 'dddddddddddddddddddddddd',
+      action: 'member_role_changed', targetType: 'organization_member', targetId: 'ffffffffffffffffffffffff',
+      metadata: { previousRole: 'Member', role: 'Manager' }
+    });
+    await expect(membershipActivity.validate()).resolves.toBeUndefined();
 
     const notification = new Notification({
       organizationId: 'aaaaaaaaaaaaaaaaaaaaaaaa', recipientId: 'bbbbbbbbbbbbbbbbbbbbbbbb',

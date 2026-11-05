@@ -25,7 +25,7 @@ const get = (req, res) => res.status(200).json({
 });
 
 const update = asyncHandler(async (req, res) => {
-  const organization = await organizationService.update(req.organization, req.validated.body);
+  const organization = await organizationService.update(req.organization, req.validated.body, req.auth.userId);
   res.status(200).json({ success: true, message: 'Organization updated successfully', data: { organization }, requestId: req.id });
 });
 
